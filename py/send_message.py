@@ -1506,6 +1506,14 @@ class SendMessage:
             except UserAbortException:
                 eprint("Aborted by user")
 
+    def _solana(self) -> None:
+        keypath = [44 + HARDENED, 501 + HARDENED, 0 + HARDENED, 0 + HARDENED]
+        print("m/44'/501'/0'/0' address: ", self._device.solana_address(keypath, display=False))
+        try:
+            self._device.solana_address(keypath, display=True)
+        except UserAbortException:
+            eprint("Aborted by user")
+
     def _bluetooth_upgrade(self) -> None:
         filename = input("Enter path to the firmware [bitbox-da14531-firmware.bin]: ")
         if filename == "":
@@ -1593,6 +1601,7 @@ class SendMessage:
             ("Sign Ethereum Message", self._sign_eth_message),
             ("Sign Ethereum Typed Message (EIP-712)", self._sign_eth_typed_message),
             ("Cardano", self._cardano),
+            ("Solana", self._solana),
             ("Show Electrum wallet encryption key", self._get_electrum_encryption_key),
             ("BIP85 - BIP39", self._bip85_bip39),
             ("BIP85 - LN", self._bip85_ln),
