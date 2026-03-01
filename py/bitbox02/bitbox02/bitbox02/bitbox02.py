@@ -32,6 +32,7 @@ try:
     from bitbox02.communication.generated import keystore_pb2 as keystore
     from bitbox02.communication.generated import antiklepto_pb2 as antiklepto
     from bitbox02.communication.generated import bluetooth_pb2 as bluetooth
+    from bitbox02.communication.generated import solana_pb2 as solana
     import google.protobuf.empty_pb2
 
     # pylint: disable=unused-import,ungrouped-imports
@@ -1334,6 +1335,35 @@ class BitBox02(BitBoxCommonAPI):
         return self._cardano_msg_query(
             request, expected_response="sign_transaction"
         ).sign_transaction
+
+    def _solana_msg_query(
+        self, solana_request: solana.SolanaRequest, expected_response: Optional[str] = None
+    ) -> solana.SolanaResponse:
+        """
+        Same as _msg_query, but one nesting deeper for solana messages.
+        """
+        request = hww.Request()
+        request.solana.CopyFrom(solana_request)
+        solana_response = self._msg_query(request, expected_response="solana").solana
+        if (
+            expected_response is not None
+            and solana_response.WhichOneof("response") != expected_response
+        ):
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    solana_response.WhichOneof("response"), expected_response
+                )
+            )
+        return solana_response
+
+    def solana_address(self, keypath: Sequence[int], display: bool = True) -> str:
+        request = solana.SolanaRequest(
+            pub=solana.SolanaPubRequest(
+                keypath=keypath,
+                display=display,
+            )
+        )
+        return self._solana_msg_query(request, expected_response="pub").pub.pub
 
     def _bluetooth_msg_query(
         self, bluetooth_request: bluetooth.BluetoothRequest, expected_response: Optional[str] = None
