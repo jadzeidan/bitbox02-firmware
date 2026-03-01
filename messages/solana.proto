@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package shiftcrypto.bitbox02;
+
+import "common.proto";
+
+message SolanaPubRequest {
+  repeated uint32 keypath = 1;
+  bool display = 2;
+}
+
+message SolanaSignTransactionRequest {
+  repeated uint32 keypath = 1;
+  bytes message = 2;
+}
+
+message SolanaSignTransactionResponse {
+  bytes signature = 1;
+  bytes public_key = 2;
+}
+
+message SolanaRequest {
+  oneof request {
+    SolanaPubRequest pub = 1;
+    SolanaSignTransactionRequest sign_transaction = 2;
+  }
+}
+
+message SolanaResponse {
+  oneof response {
+    PubResponse pub = 1;
+    SolanaSignTransactionResponse sign_transaction = 2;
+  }
+}

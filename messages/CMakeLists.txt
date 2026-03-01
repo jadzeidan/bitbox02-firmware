@@ -15,6 +15,7 @@ set(PROTO_FILES
   perform_attestation.proto
   keystore.proto
   antiklepto.proto
+  solana.proto
 )
 
 # Create absolute paths to protobuf sources
