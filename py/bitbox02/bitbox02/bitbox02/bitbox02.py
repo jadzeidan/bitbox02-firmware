@@ -1393,7 +1393,26 @@ class BitBox02(BitBoxCommonAPI):
                 fee=fee,
             )
         )
-        response = self._xmr_msg_query(request, expected_response="sign_transaction").sign_transaction
+        response = self._xmr_msg_query(
+            request, expected_response="sign_transaction"
+        ).sign_transaction
+        return response.signature, response.public_key
+
+    def xmr_sign_message(
+        self,
+        spend_keypath: Sequence[int],
+        msg: bytes,
+        network: "xmr.XMRNetwork.V" = xmr.XMRMainnet,
+    ) -> Tuple[bytes, bytes]:
+        # pylint: disable=no-member
+        request = xmr.XMRRequest(
+            sign_message=xmr.XMRSignMessageRequest(
+                spend_keypath=spend_keypath,
+                msg=msg,
+                network=network,
+            )
+        )
+        response = self._xmr_msg_query(request, expected_response="sign_message").sign_message
         return response.signature, response.public_key
 
     def _bluetooth_msg_query(

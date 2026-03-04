@@ -37,10 +37,22 @@ message XMRSignTransactionResponse {
   bytes public_key = 2;
 }
 
+message XMRSignMessageRequest {
+  repeated uint32 spend_keypath = 1;
+  bytes msg = 2;
+  XMRNetwork network = 3;
+}
+
+message XMRSignMessageResponse {
+  bytes signature = 1;
+  bytes public_key = 2;
+}
+
 message XMRRequest {
   oneof request {
     XMRAddressRequest address = 1;
     XMRSignTransactionRequest sign_transaction = 2;
+    XMRSignMessageRequest sign_message = 3;
   }
 }
 
@@ -48,5 +60,6 @@ message XMRResponse {
   oneof response {
     PubResponse pub = 1;
     XMRSignTransactionResponse sign_transaction = 2;
+    XMRSignMessageResponse sign_message = 3;
   }
 }

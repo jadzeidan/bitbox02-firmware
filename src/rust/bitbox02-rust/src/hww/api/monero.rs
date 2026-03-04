@@ -8,6 +8,7 @@ use super::pb;
 use crate::hal::Ui;
 use crate::hal::ui::ConfirmParams;
 use crate::workflow::transaction;
+use crate::workflow::verify_message;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -22,6 +23,7 @@ const BIP44_ACCOUNT_MIN: u32 = HARDENED;
 const BIP44_ACCOUNT_MAX: u32 = HARDENED + 99;
 const BIP44_CHANGE_RECEIVE: u32 = 0;
 const BIP44_ADDRESS_MAX: u32 = 9999;
+const MAX_MESSAGE_SIZE: usize = 1024;
 
 const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const ENCODED_BLOCK_SIZES: [usize; 9] = [0, 2, 3, 5, 6, 7, 9, 10, 11];
@@ -87,6 +89,17 @@ fn validate_keypaths(spend_keypath: &[u32], view_keypath: &[u32]) -> Result<(), 
         return Err(Error::InvalidInput);
     }
     Ok(())
+}
+
+fn view_keypath_from_spend_keypath(spend_keypath: &[u32]) -> Result<Vec<u32>, Error> {
+    validate_address_keypath(spend_keypath)?;
+    let mut view_keypath = spend_keypath.to_vec();
+    let view_keypath_last = view_keypath.last_mut().ok_or(Error::InvalidInput)?;
+    *view_keypath_last = view_keypath_last
+        .checked_add(1)
+        .ok_or(Error::InvalidInput)?;
+    validate_address_keypath(&view_keypath)?;
+    Ok(view_keypath)
 }
 
 fn format_amount(unit: &str, piconero: u64) -> String {
@@ -331,6 +344,47 @@ async fn process_sign_transaction(
     }))
 }
 
+async fn process_sign_message(
+    hal: &mut impl crate::hal::Hal,
+    request: &pb::XmrSignMessageRequest,
+) -> Result<Response, Error> {
+    let network = pb::XmrNetwork::try_from(request.network)?;
+    let params = params(network);
+    let view_keypath = view_keypath_from_spend_keypath(&request.spend_keypath)?;
+    if request.msg.is_empty() || request.msg.len() > MAX_MESSAGE_SIZE {
+        return Err(Error::InvalidInput);
+    }
+
+    let spend_xpub = crate::keystore::ed25519::get_xpub(hal, &request.spend_keypath)?;
+    let view_xpub = crate::keystore::ed25519::get_xpub(hal, &view_keypath)?;
+    let address = make_address(&params, spend_xpub.pubkey_bytes(), view_xpub.pubkey_bytes())?;
+
+    hal.ui()
+        .confirm(&ConfirmParams {
+            title: params.name,
+            body: &util::strings::format_address(&address),
+            scrollable: true,
+            accept_is_nextarrow: true,
+            ..Default::default()
+        })
+        .await?;
+
+    verify_message::verify(hal, "Sign message", "Sign", &request.msg, true).await?;
+
+    // Prefix and hash to obtain a 32-byte digest compatible with our ed25519 signer.
+    let mut msg: Vec<u8> = Vec::new();
+    msg.extend(b"\x18Monero Signed Message:\n");
+    msg.extend(format!("{}", request.msg.len()).as_bytes());
+    msg.extend(&request.msg);
+    let sighash: [u8; 32] = sha3::Keccak256::digest(&msg).into();
+
+    let sign_result = crate::keystore::ed25519::sign(hal, &request.spend_keypath, &sighash)?;
+    Ok(Response::SignMessage(pb::XmrSignMessageResponse {
+        signature: sign_result.signature.to_vec(),
+        public_key: sign_result.public_key.to_bytes().to_vec(),
+    }))
+}
+
 /// Handle a Monero protobuf api call.
 pub async fn process_api(
     hal: &mut impl crate::hal::Hal,
@@ -339,6 +393,7 @@ pub async fn process_api(
     match request {
         Request::Address(request) => process_address(hal, request).await,
         Request::SignTransaction(request) => process_sign_transaction(hal, request).await,
+        Request::SignMessage(request) => process_sign_message(hal, request).await,
     }
 }
 
@@ -346,6 +401,7 @@ pub async fn process_api(
 mod tests {
     use super::*;
     use crate::hal::testing::TestingHal;
+    use crate::hal::testing::ui::Screen;
     use crate::keystore::testing::mock_unlocked;
 
     #[test]
@@ -465,5 +521,59 @@ mod tests {
 
         let testnet = params(pb::XmrNetwork::XmrTestnet);
         assert!(validate_destination_address(&valid_standard, &testnet).is_err());
+    }
+
+    #[test]
+    fn test_process_sign_message() {
+        mock_unlocked();
+        let mut mock_hal = TestingHal::new();
+        let response = util::bb02_async::block_on(process_api(
+            &mut mock_hal,
+            &Request::SignMessage(pb::XmrSignMessageRequest {
+                spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                msg: b"hello monero".to_vec(),
+                network: pb::XmrNetwork::XmrMainnet as i32,
+            }),
+        ))
+        .unwrap();
+        match response {
+            Response::SignMessage(pb::XmrSignMessageResponse {
+                signature,
+                public_key,
+            }) => {
+                assert_eq!(signature.len(), 64);
+                assert_eq!(public_key.len(), 32);
+            }
+            _ => panic!("wrong response type"),
+        }
+        assert_eq!(
+            mock_hal.ui.screens,
+            vec![
+                Screen::Confirm {
+                    title: "Monero".into(),
+                    body: util::strings::format_address(&get_valid_mainnet_address()),
+                    longtouch: false,
+                },
+                Screen::Confirm {
+                    title: "Sign message".into(),
+                    body: "hello monero".into(),
+                    longtouch: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_process_sign_message_invalid() {
+        mock_unlocked();
+        let response = util::bb02_async::block_on(process_api(
+            &mut TestingHal::new(),
+            &Request::SignMessage(pb::XmrSignMessageRequest {
+                spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                msg: Vec::new(),
+                network: pb::XmrNetwork::XmrMainnet as i32,
+            }),
+        ));
+        assert_eq!(response, Err(Error::InvalidInput));
     }
 }

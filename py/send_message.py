@@ -1097,13 +1097,19 @@ class SendMessage:
             eprint("Aborted by user")
 
     def _sign_xmr_tx(self) -> None:
+        destination = self._device.xmr_address(
+            spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
+            view_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 1],
+            network=bitbox02.xmr.XMRMainnet,
+            display=False,
+        )
         try:
             signature, public_key = self._device.xmr_sign_transaction(
                 spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
                 sighash=b"\x42" * 32,
                 outputs=[
                     bitbox02.xmr.XMRSignTransactionRequest.Output(
-                        destination_address="47zQ5Vj5wsn6M2A2J7uk4V7jLrEEJ5vVvKJYhVQ9SJKH9iENub8AJRDigw1k3DybZs8AjtKoaVHgMHqmpYyqn1nVbWcv16h",
+                        destination_address=destination,
                         amount=1_234_000_000_000,
                     )
                 ],
@@ -1115,6 +1121,20 @@ class SendMessage:
             return
         print("Monero tx signature: {}".format(signature.hex()))
         print("Monero tx public key: {}".format(public_key.hex()))
+
+    def _sign_xmr_message(self) -> None:
+        msg = input(r"Monero message to sign (\n = newline): ")
+        msg_bytes = msg.replace(r"\n", "\n").encode("utf-8")
+        try:
+            signature, public_key = self._device.xmr_sign_message(
+                spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
+                msg=msg_bytes,
+            )
+        except UserAbortException:
+            eprint("Aborted by user")
+            return
+        print("Monero message signature: {}".format(signature.hex()))
+        print("Monero message public key: {}".format(public_key.hex()))
 
     def _sign_eth_tx(self) -> None:
         # pylint: disable=line-too-long,too-many-branches
@@ -1629,6 +1649,7 @@ class SendMessage:
             ("Sign Ethereum Typed Message (EIP-712)", self._sign_eth_typed_message),
             ("Retrieve Monero address", self._display_xmr_address),
             ("Sign Monero tx", self._sign_xmr_tx),
+            ("Sign Monero message", self._sign_xmr_message),
             ("Cardano", self._cardano),
             ("Show Electrum wallet encryption key", self._get_electrum_encryption_key),
             ("BIP85 - BIP39", self._bip85_bip39),

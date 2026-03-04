@@ -1938,8 +1938,26 @@ pub struct XmrSignTransactionResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XmrSignMessageRequest {
+    #[prost(uint32, repeated, tag = "1")]
+    pub spend_keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub msg: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration = "XmrNetwork", tag = "3")]
+    pub network: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XmrSignMessageResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub public_key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct XmrRequest {
-    #[prost(oneof = "xmr_request::Request", tags = "1, 2")]
+    #[prost(oneof = "xmr_request::Request", tags = "1, 2, 3")]
     pub request: ::core::option::Option<xmr_request::Request>,
 }
 /// Nested message and enum types in `XMRRequest`.
@@ -1951,12 +1969,14 @@ pub mod xmr_request {
         Address(super::XmrAddressRequest),
         #[prost(message, tag = "2")]
         SignTransaction(super::XmrSignTransactionRequest),
+        #[prost(message, tag = "3")]
+        SignMessage(super::XmrSignMessageRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct XmrResponse {
-    #[prost(oneof = "xmr_response::Response", tags = "1, 2")]
+    #[prost(oneof = "xmr_response::Response", tags = "1, 2, 3")]
     pub response: ::core::option::Option<xmr_response::Response>,
 }
 /// Nested message and enum types in `XMRResponse`.
@@ -1968,6 +1988,8 @@ pub mod xmr_response {
         Pub(super::PubResponse),
         #[prost(message, tag = "2")]
         SignTransaction(super::XmrSignTransactionResponse),
+        #[prost(message, tag = "3")]
+        SignMessage(super::XmrSignMessageResponse),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
