@@ -28,7 +28,9 @@ const ENCODED_BLOCK_SIZES: [usize; 9] = [0, 2, 3, 5, 6, 7, 9, 10, 11];
 
 struct Params {
     name: &'static str,
-    address_prefix: u8,
+    address_prefix_standard: u8,
+    address_prefix_integrated: u8,
+    address_prefix_subaddress: u8,
     unit: &'static str,
 }
 
@@ -36,17 +38,23 @@ fn params(network: pb::XmrNetwork) -> Params {
     match network {
         pb::XmrNetwork::XmrMainnet => Params {
             name: "Monero",
-            address_prefix: 18,
+            address_prefix_standard: 18,
+            address_prefix_integrated: 19,
+            address_prefix_subaddress: 42,
             unit: "XMR",
         },
         pb::XmrNetwork::XmrTestnet => Params {
             name: "Monero Testnet",
-            address_prefix: 53,
+            address_prefix_standard: 53,
+            address_prefix_integrated: 54,
+            address_prefix_subaddress: 63,
             unit: "TXMR",
         },
         pb::XmrNetwork::XmrStagenet => Params {
             name: "Monero Stagenet",
-            address_prefix: 24,
+            address_prefix_standard: 24,
+            address_prefix_integrated: 25,
+            address_prefix_subaddress: 36,
             unit: "SXMR",
         },
     }
@@ -88,13 +96,6 @@ fn format_amount(unit: &str, piconero: u64) -> String {
     out
 }
 
-fn validate_destination_address(address: &str) -> Result<(), Error> {
-    if address.is_empty() || address.len() > 200 {
-        return Err(Error::InvalidInput);
-    }
-    Ok(())
-}
-
 fn encode_block(block: &[u8]) -> String {
     let mut n = 0u64;
     for byte in block {
@@ -134,7 +135,7 @@ fn make_address(params: &Params, spend_pubkey: &[u8], view_pubkey: &[u8]) -> Res
         return Err(Error::InvalidInput);
     }
     let mut payload = Vec::with_capacity(1 + 32 + 32);
-    payload.push(params.address_prefix);
+    payload.push(params.address_prefix_standard);
     payload.extend_from_slice(spend_pubkey);
     payload.extend_from_slice(view_pubkey);
     let checksum = sha3::Keccak256::digest(&payload);
@@ -143,6 +144,100 @@ fn make_address(params: &Params, spend_pubkey: &[u8], view_pubkey: &[u8]) -> Res
     address_data.extend_from_slice(&payload);
     address_data.extend_from_slice(&checksum[..4]);
     Ok(encode_monero_base58(&address_data))
+}
+
+fn decoded_block_size(encoded_len: usize) -> Option<usize> {
+    match encoded_len {
+        2 => Some(1),
+        3 => Some(2),
+        5 => Some(3),
+        6 => Some(4),
+        7 => Some(5),
+        9 => Some(6),
+        10 => Some(7),
+        11 => Some(8),
+        _ => None,
+    }
+}
+
+fn decode_base58_char(c: u8) -> Result<u8, Error> {
+    for (index, a) in BASE58_ALPHABET.iter().enumerate() {
+        if *a == c {
+            return Ok(index as u8);
+        }
+    }
+    Err(Error::InvalidInput)
+}
+
+fn decode_block(block: &[u8]) -> Result<Vec<u8>, Error> {
+    let decoded_len = decoded_block_size(block.len()).ok_or(Error::InvalidInput)?;
+    let mut value: u128 = 0;
+    for c in block {
+        let digit = decode_base58_char(*c)? as u128;
+        value = value
+            .checked_mul(58)
+            .and_then(|v| v.checked_add(digit))
+            .ok_or(Error::InvalidInput)?;
+    }
+
+    let max_value = 1u128 << (8 * decoded_len);
+    if value >= max_value {
+        return Err(Error::InvalidInput);
+    }
+
+    let mut out = vec![0u8; decoded_len];
+    for i in (0..decoded_len).rev() {
+        out[i] = (value & 0xff) as u8;
+        value >>= 8;
+    }
+    Ok(out)
+}
+
+fn decode_monero_base58(input: &str) -> Result<Vec<u8>, Error> {
+    let input = input.as_bytes();
+    if input.is_empty() {
+        return Err(Error::InvalidInput);
+    }
+    let mut out = Vec::new();
+    let mut offset = 0;
+    while offset < input.len() {
+        let remaining = input.len() - offset;
+        let block_len = if remaining > 11 { 11 } else { remaining };
+        out.extend_from_slice(&decode_block(&input[offset..offset + block_len])?);
+        offset += block_len;
+    }
+    Ok(out)
+}
+
+fn validate_destination_address(address: &str, params: &Params) -> Result<(), Error> {
+    if address.is_empty() || address.len() > 200 {
+        return Err(Error::InvalidInput);
+    }
+    let decoded = decode_monero_base58(address)?;
+    if decoded.len() != 69 && decoded.len() != 77 {
+        return Err(Error::InvalidInput);
+    }
+    if decoded.len() < 5 {
+        return Err(Error::InvalidInput);
+    }
+    let prefix = decoded[0];
+    if decoded.len() == 69
+        && prefix != params.address_prefix_standard
+        && prefix != params.address_prefix_subaddress
+    {
+        return Err(Error::InvalidInput);
+    }
+    if decoded.len() == 77 && prefix != params.address_prefix_integrated {
+        return Err(Error::InvalidInput);
+    }
+
+    let checksum_index = decoded.len() - 4;
+    let checksum = &decoded[checksum_index..];
+    let expected = sha3::Keccak256::digest(&decoded[..checksum_index]);
+    if checksum != &expected[..4] {
+        return Err(Error::InvalidInput);
+    }
+    Ok(())
 }
 
 async fn process_address(
@@ -191,7 +286,7 @@ async fn process_sign_transaction(
 
     let mut outputs_sum: u64 = 0;
     for output in &request.outputs {
-        validate_destination_address(&output.destination_address)?;
+        validate_destination_address(&output.destination_address, &params)?;
         outputs_sum = outputs_sum
             .checked_add(output.amount)
             .ok_or(Error::InvalidInput)?;
@@ -309,9 +404,27 @@ mod tests {
         }
     }
 
+    fn get_valid_mainnet_address() -> String {
+        let response = util::bb02_async::block_on(process_api(
+            &mut TestingHal::new(),
+            &Request::Address(pb::XmrAddressRequest {
+                network: pb::XmrNetwork::XmrMainnet as i32,
+                display: false,
+                spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                view_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 1],
+            }),
+        ))
+        .unwrap();
+        match response {
+            Response::Pub(pb::PubResponse { r#pub }) => r#pub,
+            _ => panic!("wrong response type"),
+        }
+    }
+
     #[test]
     fn test_process_sign_transaction() {
         mock_unlocked();
+        let destination = get_valid_mainnet_address();
         let response = util::bb02_async::block_on(process_api(
             &mut TestingHal::new(),
             &Request::SignTransaction(pb::XmrSignTransactionRequest {
@@ -319,7 +432,7 @@ mod tests {
                 spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
                 sighash: [7u8; 32].to_vec(),
                 outputs: vec![pb::xmr_sign_transaction_request::Output {
-                    destination_address: "47zQ5Vj5wsn6M2A2J7uk4V7jLrEEJ5vVvKJYhVQ9SJKH9iENub8AJRDigw1k3DybZs8AjtKoaVHgMHqmpYyqn1nVbWcv16h".into(),
+                    destination_address: destination,
                     amount: 1_200_000_000_000,
                 }],
                 fee: 30_000_000_000,
@@ -336,5 +449,21 @@ mod tests {
             }
             _ => panic!("wrong response type"),
         }
+    }
+
+    #[test]
+    fn test_validate_destination_address() {
+        let mainnet = params(pb::XmrNetwork::XmrMainnet);
+        let valid_standard = get_valid_mainnet_address();
+        assert!(validate_destination_address(&valid_standard, &mainnet).is_ok());
+
+        let mut invalid_checksum = valid_standard.as_bytes().to_vec();
+        let last = invalid_checksum.len() - 1;
+        invalid_checksum[last] = b'1';
+        let invalid_checksum = core::str::from_utf8(&invalid_checksum).unwrap();
+        assert!(validate_destination_address(invalid_checksum, &mainnet).is_err());
+
+        let testnet = params(pb::XmrNetwork::XmrTestnet);
+        assert!(validate_destination_address(&valid_standard, &testnet).is_err());
     }
 }
