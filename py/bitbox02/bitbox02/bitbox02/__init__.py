@@ -45,6 +45,7 @@ from .bitbox02 import (
     cardano,
     common,
     eth,
+    xmr,
     system,
 )
 from .bootloader import Bootloader

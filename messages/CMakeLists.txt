@@ -10,6 +10,7 @@ set(PROTO_FILES
   btc.proto
   cardano.proto
   eth.proto
+  xmr.proto
   mnemonic.proto
   system.proto
   perform_attestation.proto

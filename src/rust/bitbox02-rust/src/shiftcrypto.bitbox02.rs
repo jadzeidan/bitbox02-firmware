@@ -1892,6 +1892,77 @@ impl EthAddressCase {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XmrAddressRequest {
+    #[prost(enumeration = "XmrNetwork", tag = "1")]
+    pub network: i32,
+    #[prost(bool, tag = "2")]
+    pub display: bool,
+    #[prost(uint32, repeated, tag = "3")]
+    pub spend_keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(uint32, repeated, tag = "4")]
+    pub view_keypath: ::prost::alloc::vec::Vec<u32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XmrRequest {
+    #[prost(oneof = "xmr_request::Request", tags = "1")]
+    pub request: ::core::option::Option<xmr_request::Request>,
+}
+/// Nested message and enum types in `XMRRequest`.
+pub mod xmr_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag = "1")]
+        Address(super::XmrAddressRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XmrResponse {
+    #[prost(oneof = "xmr_response::Response", tags = "1")]
+    pub response: ::core::option::Option<xmr_response::Response>,
+}
+/// Nested message and enum types in `XMRResponse`.
+pub mod xmr_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Pub(super::PubResponse),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum XmrNetwork {
+    XmrMainnet = 0,
+    XmrTestnet = 1,
+    XmrStagenet = 2,
+}
+impl XmrNetwork {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            XmrNetwork::XmrMainnet => "XMRMainnet",
+            XmrNetwork::XmrTestnet => "XMRTestnet",
+            XmrNetwork::XmrStagenet => "XMRStagenet",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "XMRMainnet" => Some(Self::XmrMainnet),
+            "XMRTestnet" => Some(Self::XmrTestnet),
+            "XMRStagenet" => Some(Self::XmrStagenet),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ElectrumEncryptionKeyRequest {
     #[prost(uint32, repeated, tag = "1")]
     pub keypath: ::prost::alloc::vec::Vec<u32>,
@@ -2043,7 +2114,7 @@ pub struct Success {}
 pub struct Request {
     #[prost(
         oneof = "request::Request",
-        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30"
+        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31"
     )]
     pub request: ::core::option::Option<request::Request>,
 }
@@ -2110,6 +2181,8 @@ pub mod request {
         Bluetooth(super::BluetoothRequest),
         #[prost(message, tag = "30")]
         ChangePassword(super::ChangePasswordRequest),
+        #[prost(message, tag = "31")]
+        Xmr(super::XmrRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2117,7 +2190,7 @@ pub mod request {
 pub struct Response {
     #[prost(
         oneof = "response::Response",
-        tags = "1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17"
+        tags = "1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18"
     )]
     pub response: ::core::option::Option<response::Response>,
 }
@@ -2159,5 +2232,7 @@ pub mod response {
         Bip85(super::Bip85Response),
         #[prost(message, tag = "17")]
         Bluetooth(super::BluetoothResponse),
+        #[prost(message, tag = "18")]
+        Xmr(super::XmrResponse),
     }
 }

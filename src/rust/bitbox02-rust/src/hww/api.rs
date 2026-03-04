@@ -13,6 +13,9 @@ pub mod bitcoin;
 #[cfg(feature = "app-cardano")]
 mod cardano;
 
+#[cfg(feature = "app-monero")]
+mod monero;
+
 mod backup;
 mod bip85;
 mod bluetooth;
@@ -140,6 +143,7 @@ fn can_call(hal: &mut impl crate::hal::Hal, request: &Request) -> bool {
         | Request::Eth(_)
         | Request::Reset(_)
         | Request::Cardano(_)
+        | Request::Xmr(_)
         | Request::Bip85(_)
         | Request::ChangePassword(_) => {
             matches!(state, State::InitializedAndUnlocked)
@@ -196,6 +200,14 @@ async fn process_api(hal: &mut impl crate::hal::Hal, request: &Request) -> Resul
             .map(|r| Response::Cardano(pb::CardanoResponse { response: Some(r) })),
         #[cfg(not(feature = "app-cardano"))]
         Request::Cardano(_) => Err(Error::Disabled),
+        #[cfg(feature = "app-monero")]
+        Request::Xmr(pb::XmrRequest {
+            request: Some(request),
+        }) => monero::process_api(hal, request)
+            .await
+            .map(|r| Response::Xmr(pb::XmrResponse { response: Some(r) })),
+        #[cfg(not(feature = "app-monero"))]
+        Request::Xmr(_) => Err(Error::Disabled),
         Request::Bip85(request) => bip85::process(hal, request).await,
         Request::Bluetooth(pb::BluetoothRequest {
             request: Some(request),

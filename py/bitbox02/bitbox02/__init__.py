@@ -29,6 +29,7 @@ from .bitbox02 import (
     cardano,
     common,
     eth,
+    xmr,
     system,
     Bootloader,
 )

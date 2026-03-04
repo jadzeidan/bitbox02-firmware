@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package shiftcrypto.bitbox02;
+
+import "common.proto";
+
+enum XMRNetwork {
+  XMRMainnet = 0;
+  XMRTestnet = 1;
+  XMRStagenet = 2;
+}
+
+message XMRAddressRequest {
+  XMRNetwork network = 1;
+  bool display = 2;
+  repeated uint32 spend_keypath = 3;
+  repeated uint32 view_keypath = 4;
+}
+
+message XMRRequest {
+  oneof request {
+    XMRAddressRequest address = 1;
+  }
+}
+
+message XMRResponse {
+  oneof response {
+    PubResponse pub = 1;
+  }
+}

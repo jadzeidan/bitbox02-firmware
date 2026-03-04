@@ -26,6 +26,7 @@ try:
     from bitbox02.communication.generated import btc_pb2 as btc
     from bitbox02.communication.generated import cardano_pb2 as cardano
     from bitbox02.communication.generated import mnemonic_pb2 as mnemonic
+    from bitbox02.communication.generated import xmr_pb2 as xmr
     from bitbox02.communication.generated import bitbox02_system_pb2 as bitbox02_system
     from bitbox02.communication.generated import backup_commands_pb2 as backup
     from bitbox02.communication.generated import common_pb2 as common
@@ -1334,6 +1335,45 @@ class BitBox02(BitBoxCommonAPI):
         return self._cardano_msg_query(
             request, expected_response="sign_transaction"
         ).sign_transaction
+
+    def _xmr_msg_query(
+        self, xmr_request: xmr.XMRRequest, expected_response: Optional[str] = None
+    ) -> xmr.XMRResponse:
+        """
+        Same as _msg_query, but one nesting deeper for monero messages.
+        """
+        # pylint: disable=no-member
+        request = hww.Request()
+        request.xmr.CopyFrom(xmr_request)
+        xmr_response = self._msg_query(request, expected_response="xmr").xmr
+        if (
+            expected_response is not None
+            and xmr_response.WhichOneof("response") != expected_response
+        ):
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    xmr_response.WhichOneof("response"), expected_response
+                )
+            )
+        return xmr_response
+
+    def xmr_address(
+        self,
+        spend_keypath: Sequence[int],
+        view_keypath: Sequence[int],
+        network: "xmr.XMRNetwork.V" = xmr.XMRMainnet,
+        display: bool = True,
+    ) -> str:
+        # pylint: disable=no-member
+        request = xmr.XMRRequest(
+            address=xmr.XMRAddressRequest(
+                network=network,
+                display=display,
+                spend_keypath=spend_keypath,
+                view_keypath=view_keypath,
+            )
+        )
+        return self._xmr_msg_query(request, expected_response="pub").pub.pub
 
     def _bluetooth_msg_query(
         self, bluetooth_request: bluetooth.BluetoothRequest, expected_response: Optional[str] = None

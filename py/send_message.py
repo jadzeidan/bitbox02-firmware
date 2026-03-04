@@ -1081,6 +1081,21 @@ class SendMessage:
         except UserAbortException:
             eprint("Aborted by user")
 
+    def _display_xmr_address(self) -> None:
+        def address(display: bool = False) -> str:
+            return self._device.xmr_address(
+                spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
+                view_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 1],
+                network=bitbox02.xmr.XMRMainnet,
+                display=display,
+            )
+
+        print("Monero address: {}".format(address(display=False)))
+        try:
+            address(display=True)
+        except UserAbortException:
+            eprint("Aborted by user")
+
     def _sign_eth_tx(self) -> None:
         # pylint: disable=line-too-long,too-many-branches
 
@@ -1592,6 +1607,7 @@ class SendMessage:
             ("Sign Ethereum tx", self._sign_eth_tx),
             ("Sign Ethereum Message", self._sign_eth_message),
             ("Sign Ethereum Typed Message (EIP-712)", self._sign_eth_typed_message),
+            ("Retrieve Monero address", self._display_xmr_address),
             ("Cardano", self._cardano),
             ("Show Electrum wallet encryption key", self._get_electrum_encryption_key),
             ("BIP85 - BIP39", self._bip85_bip39),
