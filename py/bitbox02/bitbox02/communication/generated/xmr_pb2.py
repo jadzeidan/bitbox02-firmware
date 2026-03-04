@@ -14,19 +14,25 @@ _sym_db = _symbol_database.Default()
 from . import common_pb2 as common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\txmr.proto\x12\x14shiftcrypto.bitbox02\x1a\x0c\x63ommon.proto\"\x84\x01\n\x11XMRAddressRequest\x12\x31\n\x07network\x18\x01 \x01(\x0e\x32 .shiftcrypto.bitbox02.XMRNetwork\x12\x0f\n\x07\x64isplay\x18\x02 \x01(\x08\x12\x15\n\rspend_keypath\x18\x03 \x03(\r\x12\x14\n\x0cview_keypath\x18\x04 \x03(\r\"S\n\nXMRRequest\x12:\n\x07\x61\x64\x64ress\x18\x01 \x01(\x0b\x32\'.shiftcrypto.bitbox02.XMRAddressRequestH\x00\x42\t\n\x07request\"K\n\x0bXMRResponse\x12\x30\n\x03pub\x18\x01 \x01(\x0b\x32!.shiftcrypto.bitbox02.PubResponseH\x00\x42\n\n\x08response*=\n\nXMRNetwork\x12\x0e\n\nXMRMainnet\x10\x00\x12\x0e\n\nXMRTestnet\x10\x01\x12\x0f\n\x0bXMRStagenet\x10\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\txmr.proto\x12\x14shiftcrypto.bitbox02\x1a\x0c\x63ommon.proto\"\x84\x01\n\x11XMRAddressRequest\x12\x31\n\x07network\x18\x01 \x01(\x0e\x32 .shiftcrypto.bitbox02.XMRNetwork\x12\x0f\n\x07\x64isplay\x18\x02 \x01(\x08\x12\x15\n\rspend_keypath\x18\x03 \x03(\r\x12\x14\n\x0cview_keypath\x18\x04 \x03(\r\"\x83\x02\n\x19XMRSignTransactionRequest\x12\x31\n\x07network\x18\x01 \x01(\x0e\x32 .shiftcrypto.bitbox02.XMRNetwork\x12\x15\n\rspend_keypath\x18\x02 \x03(\r\x12\x0f\n\x07sighash\x18\x03 \x01(\x0c\x12G\n\x07outputs\x18\x04 \x03(\x0b\x32\x36.shiftcrypto.bitbox02.XMRSignTransactionRequest.Output\x12\x0b\n\x03\x66\x65\x65\x18\x05 \x01(\x04\x1a\x35\n\x06Output\x12\x1b\n\x13\x64\x65stination_address\x18\x01 \x01(\t\x12\x0e\n\x06\x61mount\x18\x02 \x01(\x04\"C\n\x1aXMRSignTransactionResponse\x12\x11\n\tsignature\x18\x01 \x01(\x0c\x12\x12\n\npublic_key\x18\x02 \x01(\x0c\"\xa0\x01\n\nXMRRequest\x12:\n\x07\x61\x64\x64ress\x18\x01 \x01(\x0b\x32\'.shiftcrypto.bitbox02.XMRAddressRequestH\x00\x12K\n\x10sign_transaction\x18\x02 \x01(\x0b\x32/.shiftcrypto.bitbox02.XMRSignTransactionRequestH\x00\x42\t\n\x07request\"\x99\x01\n\x0bXMRResponse\x12\x30\n\x03pub\x18\x01 \x01(\x0b\x32!.shiftcrypto.bitbox02.PubResponseH\x00\x12L\n\x10sign_transaction\x18\x02 \x01(\x0b\x32\x30.shiftcrypto.bitbox02.XMRSignTransactionResponseH\x00\x42\n\n\x08response*=\n\nXMRNetwork\x12\x0e\n\nXMRMainnet\x10\x00\x12\x0e\n\nXMRTestnet\x10\x01\x12\x0f\n\x0bXMRStagenet\x10\x02\x62\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'xmr_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
-  _XMRNETWORK._serialized_start=346
-  _XMRNETWORK._serialized_end=407
+  _XMRNETWORK._serialized_start=834
+  _XMRNETWORK._serialized_end=895
   _XMRADDRESSREQUEST._serialized_start=50
   _XMRADDRESSREQUEST._serialized_end=182
-  _XMRREQUEST._serialized_start=184
-  _XMRREQUEST._serialized_end=267
-  _XMRRESPONSE._serialized_start=269
-  _XMRRESPONSE._serialized_end=344
+  _XMRSIGNTRANSACTIONREQUEST._serialized_start=185
+  _XMRSIGNTRANSACTIONREQUEST._serialized_end=444
+  _XMRSIGNTRANSACTIONREQUEST_OUTPUT._serialized_start=391
+  _XMRSIGNTRANSACTIONREQUEST_OUTPUT._serialized_end=444
+  _XMRSIGNTRANSACTIONRESPONSE._serialized_start=446
+  _XMRSIGNTRANSACTIONRESPONSE._serialized_end=513
+  _XMRREQUEST._serialized_start=516
+  _XMRREQUEST._serialized_end=676
+  _XMRRESPONSE._serialized_start=679
+  _XMRRESPONSE._serialized_end=832
 # @@protoc_insertion_point(module_scope)

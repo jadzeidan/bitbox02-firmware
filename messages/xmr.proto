@@ -18,14 +18,35 @@ message XMRAddressRequest {
   repeated uint32 view_keypath = 4;
 }
 
+message XMRSignTransactionRequest {
+  message Output {
+    string destination_address = 1;
+    uint64 amount = 2;
+  }
+
+  XMRNetwork network = 1;
+  repeated uint32 spend_keypath = 2;
+  // 32-byte precomputed signing digest.
+  bytes sighash = 3;
+  repeated Output outputs = 4;
+  uint64 fee = 5;
+}
+
+message XMRSignTransactionResponse {
+  bytes signature = 1;
+  bytes public_key = 2;
+}
+
 message XMRRequest {
   oneof request {
     XMRAddressRequest address = 1;
+    XMRSignTransactionRequest sign_transaction = 2;
   }
 }
 
 message XMRResponse {
   oneof response {
     PubResponse pub = 1;
+    XMRSignTransactionResponse sign_transaction = 2;
   }
 }

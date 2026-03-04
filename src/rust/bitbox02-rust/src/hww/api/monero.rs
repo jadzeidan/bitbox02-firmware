@@ -7,8 +7,10 @@ use super::Error;
 use super::pb;
 use crate::hal::Ui;
 use crate::hal::ui::ConfirmParams;
+use crate::workflow::transaction;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::convert::TryInto;
 use pb::xmr_request::Request;
 use pb::xmr_response::Response;
 use sha3::digest::Digest;
@@ -27,6 +29,7 @@ const ENCODED_BLOCK_SIZES: [usize; 9] = [0, 2, 3, 5, 6, 7, 9, 10, 11];
 struct Params {
     name: &'static str,
     address_prefix: u8,
+    unit: &'static str,
 }
 
 fn params(network: pb::XmrNetwork) -> Params {
@@ -34,14 +37,17 @@ fn params(network: pb::XmrNetwork) -> Params {
         pb::XmrNetwork::XmrMainnet => Params {
             name: "Monero",
             address_prefix: 18,
+            unit: "XMR",
         },
         pb::XmrNetwork::XmrTestnet => Params {
             name: "Monero Testnet",
             address_prefix: 53,
+            unit: "TXMR",
         },
         pb::XmrNetwork::XmrStagenet => Params {
             name: "Monero Stagenet",
             address_prefix: 24,
+            unit: "SXMR",
         },
     }
 }
@@ -70,6 +76,20 @@ fn validate_keypaths(spend_keypath: &[u32], view_keypath: &[u32]) -> Result<(), 
     validate_address_keypath(spend_keypath)?;
     validate_address_keypath(view_keypath)?;
     if spend_keypath[..4] != view_keypath[..4] {
+        return Err(Error::InvalidInput);
+    }
+    Ok(())
+}
+
+fn format_amount(unit: &str, piconero: u64) -> String {
+    let mut out = util::decimal::format_no_trim(piconero, 12);
+    out.push(' ');
+    out.push_str(unit);
+    out
+}
+
+fn validate_destination_address(address: &str) -> Result<(), Error> {
+    if address.is_empty() || address.len() > 200 {
         return Err(Error::InvalidInput);
     }
     Ok(())
@@ -152,6 +172,70 @@ async fn process_address(
     Ok(Response::Pub(pb::PubResponse { r#pub: address }))
 }
 
+async fn process_sign_transaction(
+    hal: &mut impl crate::hal::Hal,
+    request: &pb::XmrSignTransactionRequest,
+) -> Result<Response, Error> {
+    let network = pb::XmrNetwork::try_from(request.network)?;
+    let params = params(network);
+    validate_address_keypath(&request.spend_keypath)?;
+    let sighash: [u8; 32] = request
+        .sighash
+        .as_slice()
+        .try_into()
+        .or(Err(Error::InvalidInput))?;
+
+    if request.outputs.is_empty() {
+        return Err(Error::InvalidInput);
+    }
+
+    let mut outputs_sum: u64 = 0;
+    for output in &request.outputs {
+        validate_destination_address(&output.destination_address)?;
+        outputs_sum = outputs_sum
+            .checked_add(output.amount)
+            .ok_or(Error::InvalidInput)?;
+        hal.ui()
+            .verify_recipient(
+                &util::strings::format_address(&output.destination_address),
+                &format_amount(params.unit, output.amount),
+            )
+            .await?;
+    }
+
+    let total = outputs_sum
+        .checked_add(request.fee)
+        .ok_or(Error::InvalidInput)?;
+
+    let fee_percentage = if outputs_sum == 0 {
+        None
+    } else {
+        Some(100.0 * (request.fee as f64) / (outputs_sum as f64))
+    };
+    transaction::verify_total_fee_maybe_warn(
+        hal,
+        &format_amount(params.unit, total),
+        &format_amount(params.unit, request.fee),
+        fee_percentage,
+    )
+    .await?;
+
+    hal.ui()
+        .confirm(&ConfirmParams {
+            title: "Sign Monero tx",
+            body: "Proceed with signing?",
+            longtouch: true,
+            ..Default::default()
+        })
+        .await?;
+
+    let sign_result = crate::keystore::ed25519::sign(hal, &request.spend_keypath, &sighash)?;
+    Ok(Response::SignTransaction(pb::XmrSignTransactionResponse {
+        signature: sign_result.signature.to_vec(),
+        public_key: sign_result.public_key.to_bytes().to_vec(),
+    }))
+}
+
 /// Handle a Monero protobuf api call.
 pub async fn process_api(
     hal: &mut impl crate::hal::Hal,
@@ -159,6 +243,7 @@ pub async fn process_api(
 ) -> Result<Response, Error> {
     match request {
         Request::Address(request) => process_address(hal, request).await,
+        Request::SignTransaction(request) => process_sign_transaction(hal, request).await,
     }
 }
 
@@ -194,6 +279,15 @@ mod tests {
     }
 
     #[test]
+    fn test_format_amount() {
+        assert_eq!(format_amount("XMR", 0), "0.000000000000 XMR");
+        assert_eq!(
+            format_amount("XMR", 1_250_000_000_000),
+            "1.250000000000 XMR"
+        );
+    }
+
+    #[test]
     fn test_process_address() {
         mock_unlocked();
         let response = util::bb02_async::block_on(process_api(
@@ -211,6 +305,36 @@ mod tests {
                 assert!(r#pub.starts_with('4'));
                 assert_eq!(r#pub.len(), 95);
             }
+            _ => panic!("wrong response type"),
+        }
+    }
+
+    #[test]
+    fn test_process_sign_transaction() {
+        mock_unlocked();
+        let response = util::bb02_async::block_on(process_api(
+            &mut TestingHal::new(),
+            &Request::SignTransaction(pb::XmrSignTransactionRequest {
+                network: pb::XmrNetwork::XmrMainnet as i32,
+                spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                sighash: [7u8; 32].to_vec(),
+                outputs: vec![pb::xmr_sign_transaction_request::Output {
+                    destination_address: "47zQ5Vj5wsn6M2A2J7uk4V7jLrEEJ5vVvKJYhVQ9SJKH9iENub8AJRDigw1k3DybZs8AjtKoaVHgMHqmpYyqn1nVbWcv16h".into(),
+                    amount: 1_200_000_000_000,
+                }],
+                fee: 30_000_000_000,
+            }),
+        ))
+        .unwrap();
+        match response {
+            Response::SignTransaction(pb::XmrSignTransactionResponse {
+                signature,
+                public_key,
+            }) => {
+                assert_eq!(signature.len(), 64);
+                assert_eq!(public_key.len(), 32);
+            }
+            _ => panic!("wrong response type"),
         }
     }
 }

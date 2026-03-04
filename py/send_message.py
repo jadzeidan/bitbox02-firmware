@@ -1096,6 +1096,26 @@ class SendMessage:
         except UserAbortException:
             eprint("Aborted by user")
 
+    def _sign_xmr_tx(self) -> None:
+        try:
+            signature, public_key = self._device.xmr_sign_transaction(
+                spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
+                sighash=b"\x42" * 32,
+                outputs=[
+                    bitbox02.xmr.XMRSignTransactionRequest.Output(
+                        destination_address="47zQ5Vj5wsn6M2A2J7uk4V7jLrEEJ5vVvKJYhVQ9SJKH9iENub8AJRDigw1k3DybZs8AjtKoaVHgMHqmpYyqn1nVbWcv16h",
+                        amount=1_234_000_000_000,
+                    )
+                ],
+                fee=56_000_000_000,
+                network=bitbox02.xmr.XMRMainnet,
+            )
+        except UserAbortException:
+            eprint("Aborted by user")
+            return
+        print("Monero tx signature: {}".format(signature.hex()))
+        print("Monero tx public key: {}".format(public_key.hex()))
+
     def _sign_eth_tx(self) -> None:
         # pylint: disable=line-too-long,too-many-branches
 
@@ -1608,6 +1628,7 @@ class SendMessage:
             ("Sign Ethereum Message", self._sign_eth_message),
             ("Sign Ethereum Typed Message (EIP-712)", self._sign_eth_typed_message),
             ("Retrieve Monero address", self._display_xmr_address),
+            ("Sign Monero tx", self._sign_xmr_tx),
             ("Cardano", self._cardano),
             ("Show Electrum wallet encryption key", self._get_electrum_encryption_key),
             ("BIP85 - BIP39", self._bip85_bip39),

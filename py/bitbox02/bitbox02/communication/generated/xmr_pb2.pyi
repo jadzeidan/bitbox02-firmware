@@ -64,20 +64,88 @@ class XMRAddressRequest(google.protobuf.message.Message):
 global___XMRAddressRequest = XMRAddressRequest
 
 @typing.final
+class XMRSignTransactionRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    @typing.final
+    class Output(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        DESTINATION_ADDRESS_FIELD_NUMBER: builtins.int
+        AMOUNT_FIELD_NUMBER: builtins.int
+        destination_address: builtins.str
+        amount: builtins.int
+        def __init__(
+            self,
+            *,
+            destination_address: builtins.str = ...,
+            amount: builtins.int = ...,
+        ) -> None: ...
+        def ClearField(self, field_name: typing.Literal["amount", b"amount", "destination_address", b"destination_address"]) -> None: ...
+
+    NETWORK_FIELD_NUMBER: builtins.int
+    SPEND_KEYPATH_FIELD_NUMBER: builtins.int
+    SIGHASH_FIELD_NUMBER: builtins.int
+    OUTPUTS_FIELD_NUMBER: builtins.int
+    FEE_FIELD_NUMBER: builtins.int
+    network: global___XMRNetwork.ValueType
+    sighash: builtins.bytes
+    """32-byte precomputed signing digest."""
+    fee: builtins.int
+    @property
+    def spend_keypath(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    @property
+    def outputs(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___XMRSignTransactionRequest.Output]: ...
+    def __init__(
+        self,
+        *,
+        network: global___XMRNetwork.ValueType = ...,
+        spend_keypath: collections.abc.Iterable[builtins.int] | None = ...,
+        sighash: builtins.bytes = ...,
+        outputs: collections.abc.Iterable[global___XMRSignTransactionRequest.Output] | None = ...,
+        fee: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["fee", b"fee", "network", b"network", "outputs", b"outputs", "sighash", b"sighash", "spend_keypath", b"spend_keypath"]) -> None: ...
+
+global___XMRSignTransactionRequest = XMRSignTransactionRequest
+
+@typing.final
+class XMRSignTransactionResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SIGNATURE_FIELD_NUMBER: builtins.int
+    PUBLIC_KEY_FIELD_NUMBER: builtins.int
+    signature: builtins.bytes
+    public_key: builtins.bytes
+    def __init__(
+        self,
+        *,
+        signature: builtins.bytes = ...,
+        public_key: builtins.bytes = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["public_key", b"public_key", "signature", b"signature"]) -> None: ...
+
+global___XMRSignTransactionResponse = XMRSignTransactionResponse
+
+@typing.final
 class XMRRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     ADDRESS_FIELD_NUMBER: builtins.int
+    SIGN_TRANSACTION_FIELD_NUMBER: builtins.int
     @property
     def address(self) -> global___XMRAddressRequest: ...
+    @property
+    def sign_transaction(self) -> global___XMRSignTransactionRequest: ...
     def __init__(
         self,
         *,
         address: global___XMRAddressRequest | None = ...,
+        sign_transaction: global___XMRSignTransactionRequest | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["address", b"address", "request", b"request"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["address", b"address", "request", b"request"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing.Literal["request", b"request"]) -> typing.Literal["address"] | None: ...
+    def HasField(self, field_name: typing.Literal["address", b"address", "request", b"request", "sign_transaction", b"sign_transaction"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["address", b"address", "request", b"request", "sign_transaction", b"sign_transaction"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["request", b"request"]) -> typing.Literal["address", "sign_transaction"] | None: ...
 
 global___XMRRequest = XMRRequest
 
@@ -86,15 +154,19 @@ class XMRResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     PUB_FIELD_NUMBER: builtins.int
+    SIGN_TRANSACTION_FIELD_NUMBER: builtins.int
     @property
     def pub(self) -> common_pb2.PubResponse: ...
+    @property
+    def sign_transaction(self) -> global___XMRSignTransactionResponse: ...
     def __init__(
         self,
         *,
         pub: common_pb2.PubResponse | None = ...,
+        sign_transaction: global___XMRSignTransactionResponse | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["pub", b"pub", "response", b"response"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["pub", b"pub", "response", b"response"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing.Literal["response", b"response"]) -> typing.Literal["pub"] | None: ...
+    def HasField(self, field_name: typing.Literal["pub", b"pub", "response", b"response", "sign_transaction", b"sign_transaction"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["pub", b"pub", "response", b"response", "sign_transaction", b"sign_transaction"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["response", b"response"]) -> typing.Literal["pub", "sign_transaction"] | None: ...
 
 global___XMRResponse = XMRResponse
