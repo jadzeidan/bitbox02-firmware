@@ -41,6 +41,7 @@ message XMRSignMessageRequest {
   repeated uint32 spend_keypath = 1;
   bytes msg = 2;
   XMRNetwork network = 3;
+  repeated uint32 view_keypath = 4;
 }
 
 message XMRSignMessageResponse {

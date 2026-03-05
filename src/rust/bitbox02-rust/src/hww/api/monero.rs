@@ -91,17 +91,6 @@ fn validate_keypaths(spend_keypath: &[u32], view_keypath: &[u32]) -> Result<(), 
     Ok(())
 }
 
-fn view_keypath_from_spend_keypath(spend_keypath: &[u32]) -> Result<Vec<u32>, Error> {
-    validate_address_keypath(spend_keypath)?;
-    let mut view_keypath = spend_keypath.to_vec();
-    let view_keypath_last = view_keypath.last_mut().ok_or(Error::InvalidInput)?;
-    *view_keypath_last = view_keypath_last
-        .checked_add(1)
-        .ok_or(Error::InvalidInput)?;
-    validate_address_keypath(&view_keypath)?;
-    Ok(view_keypath)
-}
-
 fn format_amount(unit: &str, piconero: u64) -> String {
     let mut out = util::decimal::format_no_trim(piconero, 12);
     out.push(' ');
@@ -350,13 +339,13 @@ async fn process_sign_message(
 ) -> Result<Response, Error> {
     let network = pb::XmrNetwork::try_from(request.network)?;
     let params = params(network);
-    let view_keypath = view_keypath_from_spend_keypath(&request.spend_keypath)?;
+    validate_keypaths(&request.spend_keypath, &request.view_keypath)?;
     if request.msg.is_empty() || request.msg.len() > MAX_MESSAGE_SIZE {
         return Err(Error::InvalidInput);
     }
 
     let spend_xpub = crate::keystore::ed25519::get_xpub(hal, &request.spend_keypath)?;
-    let view_xpub = crate::keystore::ed25519::get_xpub(hal, &view_keypath)?;
+    let view_xpub = crate::keystore::ed25519::get_xpub(hal, &request.view_keypath)?;
     let address = make_address(&params, spend_xpub.pubkey_bytes(), view_xpub.pubkey_bytes())?;
 
     hal.ui()
@@ -531,6 +520,7 @@ mod tests {
             &mut mock_hal,
             &Request::SignMessage(pb::XmrSignMessageRequest {
                 spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                view_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 1],
                 msg: b"hello monero".to_vec(),
                 network: pb::XmrNetwork::XmrMainnet as i32,
             }),
@@ -570,7 +560,23 @@ mod tests {
             &mut TestingHal::new(),
             &Request::SignMessage(pb::XmrSignMessageRequest {
                 spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                view_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 1],
                 msg: Vec::new(),
+                network: pb::XmrNetwork::XmrMainnet as i32,
+            }),
+        ));
+        assert_eq!(response, Err(Error::InvalidInput));
+    }
+
+    #[test]
+    fn test_process_sign_message_invalid_keypaths() {
+        mock_unlocked();
+        let response = util::bb02_async::block_on(process_api(
+            &mut TestingHal::new(),
+            &Request::SignMessage(pb::XmrSignMessageRequest {
+                spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                view_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED + 1, 0, 1],
+                msg: b"hello".to_vec(),
                 network: pb::XmrNetwork::XmrMainnet as i32,
             }),
         ));

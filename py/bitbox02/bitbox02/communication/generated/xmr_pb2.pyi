@@ -134,18 +134,22 @@ class XMRSignMessageRequest(google.protobuf.message.Message):
     SPEND_KEYPATH_FIELD_NUMBER: builtins.int
     MSG_FIELD_NUMBER: builtins.int
     NETWORK_FIELD_NUMBER: builtins.int
+    VIEW_KEYPATH_FIELD_NUMBER: builtins.int
     msg: builtins.bytes
     network: global___XMRNetwork.ValueType
     @property
     def spend_keypath(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    @property
+    def view_keypath(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
     def __init__(
         self,
         *,
         spend_keypath: collections.abc.Iterable[builtins.int] | None = ...,
         msg: builtins.bytes = ...,
         network: global___XMRNetwork.ValueType = ...,
+        view_keypath: collections.abc.Iterable[builtins.int] | None = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["msg", b"msg", "network", b"network", "spend_keypath", b"spend_keypath"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["msg", b"msg", "network", b"network", "spend_keypath", b"spend_keypath", "view_keypath", b"view_keypath"]) -> None: ...
 
 global___XMRSignMessageRequest = XMRSignMessageRequest
 

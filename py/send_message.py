@@ -1128,7 +1128,9 @@ class SendMessage:
         try:
             signature, public_key = self._device.xmr_sign_message(
                 spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
+                view_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 1],
                 msg=msg_bytes,
+                network=bitbox02.xmr.XMRMainnet,
             )
         except UserAbortException:
             eprint("Aborted by user")

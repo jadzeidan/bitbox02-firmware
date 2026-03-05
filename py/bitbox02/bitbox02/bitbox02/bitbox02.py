@@ -1401,6 +1401,7 @@ class BitBox02(BitBoxCommonAPI):
     def xmr_sign_message(
         self,
         spend_keypath: Sequence[int],
+        view_keypath: Sequence[int],
         msg: bytes,
         network: "xmr.XMRNetwork.V" = xmr.XMRMainnet,
     ) -> Tuple[bytes, bytes]:
@@ -1408,6 +1409,7 @@ class BitBox02(BitBoxCommonAPI):
         request = xmr.XMRRequest(
             sign_message=xmr.XMRSignMessageRequest(
                 spend_keypath=spend_keypath,
+                view_keypath=view_keypath,
                 msg=msg,
                 network=network,
             )

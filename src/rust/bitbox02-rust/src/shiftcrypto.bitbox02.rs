@@ -1945,6 +1945,8 @@ pub struct XmrSignMessageRequest {
     pub msg: ::prost::alloc::vec::Vec<u8>,
     #[prost(enumeration = "XmrNetwork", tag = "3")]
     pub network: i32,
+    #[prost(uint32, repeated, tag = "4")]
+    pub view_keypath: ::prost::alloc::vec::Vec<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
