@@ -1378,7 +1378,6 @@ class BitBox02(BitBoxCommonAPI):
     def xmr_sign_transaction(
         self,
         spend_keypath: Sequence[int],
-        sighash: bytes,
         outputs: Sequence["xmr.XMRSignTransactionRequest.Output"],
         fee: int,
         network: "xmr.XMRNetwork.V" = xmr.XMRMainnet,
@@ -1388,7 +1387,6 @@ class BitBox02(BitBoxCommonAPI):
             sign_transaction=xmr.XMRSignTransactionRequest(
                 network=network,
                 spend_keypath=spend_keypath,
-                sighash=sighash,
                 outputs=outputs,
                 fee=fee,
             )

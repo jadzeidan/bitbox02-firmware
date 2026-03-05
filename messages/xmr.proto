@@ -26,7 +26,8 @@ message XMRSignTransactionRequest {
 
   XMRNetwork network = 1;
   repeated uint32 spend_keypath = 2;
-  // 32-byte precomputed signing digest.
+  // Deprecated and ignored. Kept for backwards compatibility.
+  // The device reconstructs the transaction signing digest on-device.
   bytes sighash = 3;
   repeated Output outputs = 4;
   uint64 fee = 5;

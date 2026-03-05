@@ -1909,7 +1909,8 @@ pub struct XmrSignTransactionRequest {
     pub network: i32,
     #[prost(uint32, repeated, tag = "2")]
     pub spend_keypath: ::prost::alloc::vec::Vec<u32>,
-    /// 32-byte precomputed signing digest.
+    /// Deprecated and ignored. Kept for backwards compatibility.
+    /// The device reconstructs the transaction signing digest on-device.
     #[prost(bytes = "vec", tag = "3")]
     pub sighash: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, repeated, tag = "4")]

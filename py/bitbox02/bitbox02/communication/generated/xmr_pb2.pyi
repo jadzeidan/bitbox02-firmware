@@ -90,7 +90,9 @@ class XMRSignTransactionRequest(google.protobuf.message.Message):
     FEE_FIELD_NUMBER: builtins.int
     network: global___XMRNetwork.ValueType
     sighash: builtins.bytes
-    """32-byte precomputed signing digest."""
+    """Deprecated and ignored. Kept for backwards compatibility.
+    The device reconstructs the transaction signing digest on-device.
+    """
     fee: builtins.int
     @property
     def spend_keypath(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...

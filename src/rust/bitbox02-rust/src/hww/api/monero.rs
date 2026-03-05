@@ -11,7 +11,6 @@ use crate::workflow::transaction;
 use crate::workflow::verify_message;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::convert::TryInto;
 use pb::xmr_request::Request;
 use pb::xmr_response::Response;
 use sha3::digest::Digest;
@@ -24,6 +23,8 @@ const BIP44_ACCOUNT_MAX: u32 = HARDENED + 99;
 const BIP44_CHANGE_RECEIVE: u32 = 0;
 const BIP44_ADDRESS_MAX: u32 = 9999;
 const MAX_MESSAGE_SIZE: usize = 1024;
+const MAX_TX_OUTPUTS: usize = 16;
+const TX_SIGNING_DOMAIN: &[u8] = b"BITBOX02_XMR_TX_V1";
 
 const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const ENCODED_BLOCK_SIZES: [usize; 9] = [0, 2, 3, 5, 6, 7, 9, 10, 11];
@@ -86,6 +87,9 @@ fn validate_keypaths(spend_keypath: &[u32], view_keypath: &[u32]) -> Result<(), 
     validate_address_keypath(spend_keypath)?;
     validate_address_keypath(view_keypath)?;
     if spend_keypath[..4] != view_keypath[..4] {
+        return Err(Error::InvalidInput);
+    }
+    if view_keypath[4] != spend_keypath[4].checked_add(1).ok_or(Error::InvalidInput)? {
         return Err(Error::InvalidInput);
     }
     Ok(())
@@ -242,6 +246,33 @@ fn validate_destination_address(address: &str, params: &Params) -> Result<(), Er
     Ok(())
 }
 
+fn tx_sighash(
+    network: pb::XmrNetwork,
+    spend_keypath: &[u32],
+    outputs: &[pb::xmr_sign_transaction_request::Output],
+    fee: u64,
+) -> [u8; 32] {
+    let mut preimage = Vec::new();
+    preimage.extend_from_slice(TX_SIGNING_DOMAIN);
+    preimage.push(network as u8);
+
+    preimage.extend_from_slice(&(spend_keypath.len() as u32).to_be_bytes());
+    for element in spend_keypath {
+        preimage.extend_from_slice(&element.to_be_bytes());
+    }
+
+    preimage.extend_from_slice(&(outputs.len() as u32).to_be_bytes());
+    for output in outputs {
+        let addr = output.destination_address.as_bytes();
+        preimage.extend_from_slice(&(addr.len() as u32).to_be_bytes());
+        preimage.extend_from_slice(addr);
+        preimage.extend_from_slice(&output.amount.to_be_bytes());
+    }
+    preimage.extend_from_slice(&fee.to_be_bytes());
+
+    sha3::Keccak256::digest(&preimage).into()
+}
+
 async fn process_address(
     hal: &mut impl crate::hal::Hal,
     request: &pb::XmrAddressRequest,
@@ -276,13 +307,8 @@ async fn process_sign_transaction(
     let network = pb::XmrNetwork::try_from(request.network)?;
     let params = params(network);
     validate_address_keypath(&request.spend_keypath)?;
-    let sighash: [u8; 32] = request
-        .sighash
-        .as_slice()
-        .try_into()
-        .or(Err(Error::InvalidInput))?;
 
-    if request.outputs.is_empty() {
+    if request.outputs.is_empty() || request.outputs.len() > MAX_TX_OUTPUTS {
         return Err(Error::InvalidInput);
     }
 
@@ -326,6 +352,12 @@ async fn process_sign_transaction(
         })
         .await?;
 
+    let sighash = tx_sighash(
+        network,
+        &request.spend_keypath,
+        request.outputs.as_slice(),
+        request.fee,
+    );
     let sign_result = crate::keystore::ed25519::sign(hal, &request.spend_keypath, &sighash)?;
     Ok(Response::SignTransaction(pb::XmrSignTransactionResponse {
         signature: sign_result.signature.to_vec(),
@@ -416,6 +448,13 @@ mod tests {
             )
             .is_err()
         );
+        assert!(
+            validate_keypaths(
+                &[44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                &[44 + HARDENED, 128 + HARDENED, HARDENED, 0, 2]
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -494,6 +533,61 @@ mod tests {
             }
             _ => panic!("wrong response type"),
         }
+    }
+
+    #[test]
+    fn test_process_sign_transaction_too_many_outputs() {
+        mock_unlocked();
+        let destination = get_valid_mainnet_address();
+        let outputs: Vec<pb::xmr_sign_transaction_request::Output> = (0..(MAX_TX_OUTPUTS + 1))
+            .map(|_| pb::xmr_sign_transaction_request::Output {
+                destination_address: destination.clone(),
+                amount: 1,
+            })
+            .collect();
+        let response = util::bb02_async::block_on(process_api(
+            &mut TestingHal::new(),
+            &Request::SignTransaction(pb::XmrSignTransactionRequest {
+                network: pb::XmrNetwork::XmrMainnet as i32,
+                spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                sighash: [7u8; 32].to_vec(),
+                outputs,
+                fee: 1,
+            }),
+        ));
+        assert_eq!(response, Err(Error::InvalidInput));
+    }
+
+    #[test]
+    fn test_process_sign_transaction_ignores_host_sighash() {
+        mock_unlocked();
+        let destination = get_valid_mainnet_address();
+
+        let sign = |sighash: [u8; 32]| -> pb::XmrSignTransactionResponse {
+            let response = util::bb02_async::block_on(process_api(
+                &mut TestingHal::new(),
+                &Request::SignTransaction(pb::XmrSignTransactionRequest {
+                    network: pb::XmrNetwork::XmrMainnet as i32,
+                    spend_keypath: vec![44 + HARDENED, 128 + HARDENED, HARDENED, 0, 0],
+                    sighash: sighash.to_vec(),
+                    outputs: vec![pb::xmr_sign_transaction_request::Output {
+                        destination_address: destination.clone(),
+                        amount: 1_200_000_000_000,
+                    }],
+                    fee: 30_000_000_000,
+                }),
+            ))
+            .unwrap();
+            match response {
+                Response::SignTransaction(resp) => resp,
+                _ => panic!("wrong response type"),
+            }
+        };
+
+        let response_a = sign([0x11; 32]);
+        let response_b = sign([0x22; 32]);
+        assert_eq!(response_a.signature, response_b.signature);
+        assert_eq!(response_a.public_key, response_b.public_key);
     }
 
     #[test]

@@ -1106,7 +1106,6 @@ class SendMessage:
         try:
             signature, public_key = self._device.xmr_sign_transaction(
                 spend_keypath=[44 + HARDENED, 128 + HARDENED, 0 + HARDENED, 0, 0],
-                sighash=b"\x42" * 32,
                 outputs=[
                     bitbox02.xmr.XMRSignTransactionRequest.Output(
                         destination_address=destination,
