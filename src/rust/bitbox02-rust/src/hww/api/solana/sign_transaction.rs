@@ -3,6 +3,7 @@
 use super::Error;
 use super::pb;
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use pb::solana_response::Response;
 
@@ -32,11 +33,41 @@ struct ParsedMessage {
 
 struct ParsedTransfer {
     recipient: [u8; 32],
-    lamports: u64,
+    amount: ParsedTransferAmount,
+}
+
+enum ParsedTransferAmount {
+    SolLamports(u64),
+    SplToken { amount: u64, decimals: Option<u8> },
 }
 
 fn format_lamports(lamports: u64) -> alloc::string::String {
     format!("{} SOL", util::decimal::format(lamports, LAMPORT_DECIMALS))
+}
+
+fn format_token_amount(amount: u64, decimals: Option<u8>) -> String {
+    match decimals {
+        Some(decimals) => format!("{} SPL", util::decimal::format(amount, decimals as usize)),
+        None => format!("{} SPL units", amount),
+    }
+}
+
+impl ParsedTransfer {
+    fn amount_display(&self) -> String {
+        match self.amount {
+            ParsedTransferAmount::SolLamports(lamports) => format_lamports(lamports),
+            ParsedTransferAmount::SplToken { amount, decimals } => {
+                format_token_amount(amount, decimals)
+            }
+        }
+    }
+
+    fn sol_lamports(&self) -> Option<u64> {
+        match self.amount {
+            ParsedTransferAmount::SolLamports(lamports) => Some(lamports),
+            ParsedTransferAmount::SplToken { .. } => None,
+        }
+    }
 }
 
 fn read_u8(input: &[u8], cursor: &mut usize) -> Result<u8, Error> {
@@ -172,6 +203,10 @@ fn parse_transfers_and_fee(
     const SYSTEM_PROGRAM_ID: [u8; 32] = [0u8; 32];
     // ComputeBudget111111111111111111111111111111
     const COMPUTE_BUDGET_PROGRAM_ID_B58: &str = "ComputeBudget111111111111111111111111111111";
+    // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    const TOKEN_PROGRAM_ID_B58: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+    // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+    const TOKEN_2022_PROGRAM_ID_B58: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
     let signer_index = parsed.account_keys[..parsed.header.num_required_signatures as usize]
         .iter()
@@ -192,6 +227,7 @@ fn parse_transfers_and_fee(
             .account_keys
             .get(instruction.program_id_index as usize)
             .ok_or(Error::InvalidInput)?;
+        let program_id_b58 = bitcoin::base58::encode(program_key);
         if *program_key == SYSTEM_PROGRAM_ID {
             // SystemProgram::Transfer
             if instruction.data.len() != 12 {
@@ -219,9 +255,9 @@ fn parse_transfers_and_fee(
             let lamports = u64_from_le(&instruction.data[4..12])?;
             transfers.push(ParsedTransfer {
                 recipient,
-                lamports,
+                amount: ParsedTransferAmount::SolLamports(lamports),
             });
-        } else if bitcoin::base58::encode(program_key) == COMPUTE_BUDGET_PROGRAM_ID_B58 {
+        } else if program_id_b58 == COMPUTE_BUDGET_PROGRAM_ID_B58 {
             let discriminator = *instruction.data.first().ok_or(Error::InvalidInput)?;
             match discriminator {
                 // SetComputeUnitLimit
@@ -237,6 +273,60 @@ fn parse_transfers_and_fee(
                         return Err(Error::InvalidInput);
                     }
                     compute_unit_price_micro_lamports = Some(u64_from_le(&instruction.data[1..9])?);
+                }
+                _ => return Err(Error::InvalidInput),
+            }
+        } else if program_id_b58 == TOKEN_PROGRAM_ID_B58
+            || program_id_b58 == TOKEN_2022_PROGRAM_ID_B58
+        {
+            let discriminator = *instruction.data.first().ok_or(Error::InvalidInput)?;
+            match discriminator {
+                // TokenInstruction::Transfer { amount: u64 }
+                3 => {
+                    if instruction.data.len() != 9 || instruction.account_indices.len() < 3 {
+                        return Err(Error::InvalidInput);
+                    }
+                    let authority_index = instruction.account_indices[2] as usize;
+                    if authority_index != signer_index {
+                        return Err(Error::InvalidInput);
+                    }
+                    let recipient_index = instruction.account_indices[1] as usize;
+                    let recipient = *parsed
+                        .account_keys
+                        .get(recipient_index)
+                        .ok_or(Error::InvalidInput)?;
+                    let amount = u64_from_le(&instruction.data[1..9])?;
+                    transfers.push(ParsedTransfer {
+                        recipient,
+                        amount: ParsedTransferAmount::SplToken {
+                            amount,
+                            decimals: None,
+                        },
+                    });
+                }
+                // TokenInstruction::TransferChecked { amount: u64, decimals: u8 }
+                12 => {
+                    if instruction.data.len() != 10 || instruction.account_indices.len() < 4 {
+                        return Err(Error::InvalidInput);
+                    }
+                    let authority_index = instruction.account_indices[3] as usize;
+                    if authority_index != signer_index {
+                        return Err(Error::InvalidInput);
+                    }
+                    let recipient_index = instruction.account_indices[2] as usize;
+                    let recipient = *parsed
+                        .account_keys
+                        .get(recipient_index)
+                        .ok_or(Error::InvalidInput)?;
+                    let amount = u64_from_le(&instruction.data[1..9])?;
+                    let decimals = *instruction.data.get(9).ok_or(Error::InvalidInput)?;
+                    transfers.push(ParsedTransfer {
+                        recipient,
+                        amount: ParsedTransferAmount::SplToken {
+                            amount,
+                            decimals: Some(decimals),
+                        },
+                    });
                 }
                 _ => return Err(Error::InvalidInput),
             }
@@ -291,12 +381,12 @@ pub async fn process(
         hal.ui()
             .verify_recipient(
                 &bitcoin::base58::encode(&transfer.recipient),
-                &format_lamports(transfer.lamports),
+                &transfer.amount_display(),
             )
             .await?;
-        total = total
-            .checked_add(transfer.lamports)
-            .ok_or(Error::InvalidInput)?;
+        if let Some(lamports) = transfer.sol_lamports() {
+            total = total.checked_add(lamports).ok_or(Error::InvalidInput)?;
+        }
     }
 
     let total_with_fee = total.checked_add(fee).ok_or(Error::InvalidInput)?;
@@ -379,6 +469,48 @@ mod tests {
         push_shortvec(&mut out, 12); // data len
         out.extend_from_slice(&2u32.to_le_bytes()); // Transfer ix discriminator
         out.extend_from_slice(&lamports.to_le_bytes());
+
+        out
+    }
+
+    fn make_spl_token_transfer_checked_message(
+        signer_pubkey: &[u8; 32],
+        recipient_token_account_pubkey: &[u8; 32],
+        token_program_pubkey: &[u8; 32],
+        amount: u64,
+        decimals: u8,
+    ) -> Vec<u8> {
+        let source_token_account = [0x11u8; 32];
+        let mint = [0x22u8; 32];
+        let mut out = Vec::new();
+        // Legacy message header
+        out.push(1); // num_required_signatures
+        out.push(0); // num_readonly_signed_accounts
+        out.push(1); // num_readonly_unsigned_accounts (token program)
+
+        // account_keys: signer, source token account, mint, destination token account, token program
+        push_shortvec(&mut out, 5);
+        out.extend_from_slice(signer_pubkey);
+        out.extend_from_slice(&source_token_account);
+        out.extend_from_slice(&mint);
+        out.extend_from_slice(recipient_token_account_pubkey);
+        out.extend_from_slice(token_program_pubkey);
+
+        // recent_blockhash
+        out.extend_from_slice(&[0u8; 32]);
+
+        // instructions: 1x TokenInstruction::TransferChecked
+        push_shortvec(&mut out, 1);
+        out.push(4); // program_id_index (token program)
+        push_shortvec(&mut out, 4); // accounts
+        out.push(1); // source token account
+        out.push(2); // mint
+        out.push(3); // destination token account
+        out.push(0); // authority (signer)
+        push_shortvec(&mut out, 10); // data len
+        out.push(12); // TransferChecked discriminator
+        out.extend_from_slice(&amount.to_le_bytes());
+        out.push(decimals);
 
         out
     }
@@ -471,6 +603,67 @@ mod tests {
                 }
             )),
             Err(Error::InvalidInput)
+        );
+    }
+
+    #[test]
+    fn test_process_spl_token_transfer_checked() {
+        mock_unlocked();
+        let keypath = [44 + HARDENED, 501 + HARDENED, HARDENED, HARDENED].to_vec();
+        let signer_pubkey = {
+            let xpub = keystore::ed25519::get_xpub(&mut TestingHal::new(), &keypath).unwrap();
+            let mut pubkey = [0u8; 32];
+            pubkey.copy_from_slice(xpub.pubkey_bytes());
+            pubkey
+        };
+        let recipient_token_account_pubkey = [0x43u8; 32];
+        let token_program_pubkey = {
+            let decoded =
+                bitcoin::base58::decode("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").unwrap();
+            let mut pubkey = [0u8; 32];
+            pubkey.copy_from_slice(&decoded);
+            pubkey
+        };
+        let message = make_spl_token_transfer_checked_message(
+            &signer_pubkey,
+            &recipient_token_account_pubkey,
+            &token_program_pubkey,
+            1_234_500,
+            4,
+        );
+        let request = pb::SolanaSignTransactionRequest {
+            keypath: keypath.clone(),
+            message: message.clone(),
+        };
+
+        let expected = {
+            let sig = keystore::ed25519::sign_message(&mut TestingHal::new(), &keypath, &message)
+                .unwrap();
+            pb::SolanaSignTransactionResponse {
+                signature: sig.signature.to_vec(),
+                public_key: sig.public_key.as_ref().to_vec(),
+            }
+        };
+        assert_eq!(
+            block_on(process(&mut TestingHal::new(), &request)),
+            Ok(Response::SignTransaction(expected)),
+        );
+
+        let mut hal = TestingHal::new();
+        assert!(block_on(process(&mut hal, &request)).is_ok());
+        assert_eq!(
+            hal.ui.screens,
+            vec![
+                Screen::Recipient {
+                    recipient: bitcoin::base58::encode(&recipient_token_account_pubkey),
+                    amount: "123.45 SPL".into(),
+                },
+                Screen::TotalFee {
+                    total: "0.000005 SOL".into(),
+                    fee: "0.000005 SOL".into(),
+                    longtouch: true,
+                },
+            ]
         );
     }
 }
