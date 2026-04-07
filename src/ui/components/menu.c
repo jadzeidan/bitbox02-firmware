@@ -268,8 +268,10 @@ component_t* menu_create(
     }
 
     if (select_word_cb != NULL) {
-        ui_util_add_sub_component(
-            menu, button_create("Select", bottom_slider, SCREEN_WIDTH / 2, _select, menu));
+        component_t* select_button =
+            button_create("Select", bottom_slider, SCREEN_WIDTH / 2, _select, menu);
+        button_set_active_marker(select_button, true);
+        ui_util_add_sub_component(menu, select_button);
     }
 
     if (cancel_cb != NULL) {

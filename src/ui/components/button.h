@@ -6,6 +6,7 @@
 #include <screen.h>
 #include <ui/component.h>
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /**
@@ -70,5 +71,12 @@ component_t* button_create_wide_upside_down(
  * @param[in] callback The callback that is called when the button is pushed.
  */
 void button_update(component_t* button, const char* text, void (*callback)(component_t*));
+
+/**
+ * Enables or disables an active underline marker shown while the button is pressed.
+ * @param[in] button The button to configure.
+ * @param[in] enabled If true, an underline marker is shown while touched.
+ */
+void button_set_active_marker(component_t* button, bool enabled);
 
 #endif

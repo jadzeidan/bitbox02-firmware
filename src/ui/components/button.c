@@ -7,12 +7,18 @@
 #include <screen.h>
 #include <touch/gestures.h>
 #include <ui/fonts/arial_fonts.h>
+#include <ui/screen_process.h>
 #include <ui/ui_util.h>
 
 #include <stdbool.h>
 #include <string.h>
 
+#ifndef TESTING
+    #include <hal_delay.h>
+#endif
+
 static const uint8_t MIN_BUTTON_WIDTH = 32; // 0:SCREEN_WIDTH
+static const uint8_t ACTIVE_MARKER_PRESS_FEEDBACK_MS = 60;
 
 /**
  * Component data.
@@ -22,6 +28,9 @@ typedef struct {
     slider_location_t location;
     bool span_over_slider;
     bool upside_down;
+    bool active;
+    bool active_marker;
+    UG_S16 text_width;
     void (*callback)(component_t*);
 } button_data_t;
 
@@ -41,21 +50,68 @@ static void _render(component_t* component)
         component->dimension.height,
         data->text,
         data->upside_down);
+    if (data->active && data->active_marker && data->text_width > 0) {
+        UG_S16 x1 = component->position.left + (component->dimension.width - data->text_width) / 2;
+        UG_S16 x2 = x1 + data->text_width - 1;
+        UG_S16 y = component->position.top + component->dimension.height + 2;
+        if (y >= SCREEN_HEIGHT) {
+            if (data->location == bottom_slider) {
+                y = SCREEN_HEIGHT - 1;
+            } else {
+                y = component->position.top - 2;
+                if (y < 0) {
+                    y = 0;
+                }
+            }
+        }
+        if (x2 > x1) {
+            x1++;
+            x2--;
+        }
+        UG_DrawLine(x1, y, x2, y, screen_front_color);
+    }
     UG_FontSetHSpace(1);
 }
 
 static void _on_event(const event_t* event, component_t* component)
 {
     button_data_t* data = (button_data_t*)component->data;
-    if (event->id == EVENT_SHORT_TAP && event->data.source == data->location) {
-        // NOLINTNEXTLINE(bugprone-branch-clone)
-        if (data->span_over_slider) {
+    switch (event->id) {
+    case EVENT_SHORT_TAP:
+    case EVENT_CONTINUOUS_TAP:
+        if (event->data.source != data->location) {
+            data->active = false;
+            return;
+        }
+        break;
+    default:
+        data->active = false;
+        return;
+    }
+
+    // NOLINTNEXTLINE(bugprone-branch-clone)
+    if (data->span_over_slider) {
+        data->active = true;
+    } else if (
+        event->data.position >= component->position.left * MAX_SLIDER_POS / SCREEN_WIDTH &&
+        event->data.position <= (component->position.left + component->dimension.width) *
+                                    MAX_SLIDER_POS / SCREEN_WIDTH) {
+        data->active = true;
+    } else {
+        data->active = false;
+        return;
+    }
+
+    if (event->id == EVENT_SHORT_TAP) {
+        if (data->callback != NULL) {
+            if (data->active_marker && component->parent != NULL) {
+                ui_screen_render_component(component->parent);
+#ifndef TESTING
+                delay_ms(ACTIVE_MARKER_PRESS_FEEDBACK_MS);
+#endif
+            }
             data->callback(component);
-        } else if (
-            event->data.position >= component->position.left * MAX_SLIDER_POS / SCREEN_WIDTH &&
-            event->data.position <= (component->position.left + component->dimension.width) *
-                                        MAX_SLIDER_POS / SCREEN_WIDTH) {
-            data->callback(component);
+            data->active = false;
         }
     }
 }
@@ -85,6 +141,9 @@ static component_t* _button_create(
     data->location = location;
     data->upside_down = upside_down;
     data->span_over_slider = false;
+    data->active = false;
+    data->active_marker = false;
+    data->text_width = 0;
 
     component_t* button = malloc(sizeof(component_t));
     if (!button) {
@@ -190,9 +249,21 @@ void button_update(component_t* button, const char* text, void (*callback)(compo
     snprintf(data->text, sizeof(data->text), "%s", text);
     UG_FontSelect(&font_font_a_11X10);
     UG_FontSetHSpace(0);
-    UG_MeasureString(&(button->dimension.width), &(button->dimension.height), text);
+    UG_S16 text_width = 0;
+    UG_MeasureString(&text_width, &(button->dimension.height), text);
+    data->text_width = text_width;
+    button->dimension.width = text_width;
     if (button->dimension.width < MIN_BUTTON_WIDTH) {
         button->dimension.width = MIN_BUTTON_WIDTH;
     }
     UG_FontSetHSpace(1);
+}
+
+void button_set_active_marker(component_t* button, bool enabled)
+{
+    button_data_t* data = (button_data_t*)button->data;
+    data->active_marker = enabled;
+    if (!enabled) {
+        data->active = false;
+    }
 }
