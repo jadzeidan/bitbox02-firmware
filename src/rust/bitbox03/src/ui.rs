@@ -14,6 +14,7 @@ use util::futures::completion;
 mod choice;
 mod confirm;
 mod enter_string;
+pub mod keypad;
 mod menu;
 mod status;
 
@@ -239,6 +240,77 @@ fn set_background(display: &mut LvDisplay) {
     img.align(LvAlign::LV_ALIGN_CENTER, 0, 0);
 }
 
+// TEMPORARY (keypad visual test): builds a standalone screen showing the numeric keypad with a live
+// entry label, so the component can be exercised in the graphical simulator. Tapping digits appends
+// to the label, the backspace key removes the last digit (and greys out when empty), and the confirm
+// key clears the entry. Remove this function together with its call site in `init`.
+fn build_keypad_demo_screen() -> LvObj {
+    use alloc::rc::Rc;
+    use alloc::string::String;
+    use core::cell::RefCell;
+
+    let screen = LvObj::new().expect("create keypad demo screen");
+    screen.set_style_bg_color(lvgl::color::hex(0x2a2a2a), 0);
+    screen.set_style_bg_opa(LvOpacityLevel::LV_OPA_COVER as u8, 0);
+
+    let entry = Rc::new(LvLabel::new(&screen).expect("create entry label"));
+    entry.set_text("").expect("empty entry");
+    entry.set_style_text_font(
+        lvgl::fonts::INTER_REGULAR_48,
+        lvgl::LvState::LV_STATE_DEFAULT as u32,
+    );
+    entry.set_style_text_color(lvgl::color::white(), 0);
+    entry.align(LvAlign::LV_ALIGN_TOP_MID, 0, 150);
+
+    let pin = Rc::new(RefCell::new(String::new()));
+    let keypad_slot: Rc<RefCell<Option<keypad::Keypad>>> = Rc::new(RefCell::new(None));
+
+    let refresh: Rc<dyn Fn()> = {
+        let pin = Rc::clone(&pin);
+        let entry = Rc::clone(&entry);
+        let keypad_slot = Rc::clone(&keypad_slot);
+        Rc::new(move || {
+            let text = pin.borrow();
+            entry.set_text(&text).expect("digits are ascii");
+            if let Some(keypad) = keypad_slot.borrow().as_ref() {
+                keypad.set_delete_enabled(!text.is_empty());
+            }
+        })
+    };
+
+    let on_digit = {
+        let pin = Rc::clone(&pin);
+        let refresh = Rc::clone(&refresh);
+        move |digit: u8| {
+            pin.borrow_mut().push((b'0' + digit) as char);
+            refresh();
+        }
+    };
+    let on_delete = {
+        let pin = Rc::clone(&pin);
+        let refresh = Rc::clone(&refresh);
+        move || {
+            pin.borrow_mut().pop();
+            refresh();
+        }
+    };
+    let on_confirm = {
+        let pin = Rc::clone(&pin);
+        let refresh = Rc::clone(&refresh);
+        move || {
+            pin.borrow_mut().clear();
+            refresh();
+        }
+    };
+
+    let keypad = keypad::build_keypad(&screen, on_digit, on_delete, on_confirm);
+    keypad.container.align(LvAlign::LV_ALIGN_TOP_MID, 0, 279);
+    keypad.set_delete_enabled(false);
+    *keypad_slot.borrow_mut() = Some(keypad);
+
+    screen
+}
+
 impl<Timer> BitBox03Ui<Timer> {
     pub const fn new() -> BitBox03Ui<Timer> {
         BitBox03Ui {
@@ -307,6 +379,11 @@ impl<Timer> BitBox03Ui<Timer> {
             lvgl::LvState::LV_STATE_DEFAULT as u32,
         );
         self.push(screen);
+
+        // TEMPORARY (keypad visual test): show the interactive numeric keypad on top of the
+        // welcome screen so it can be exercised in the graphical simulator. Remove this line and
+        // `build_keypad_demo_screen` below once the keypad is wired into real entry flows.
+        self.push(build_keypad_demo_screen());
     }
 
     pub fn pop(&mut self) {
