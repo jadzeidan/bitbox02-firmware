@@ -46,6 +46,10 @@ pub async fn enter(
     let params = crate::hal::ui::EnterStringParams {
         title,
         hide: true,
+        pin: match password_type {
+            PasswordType::DevicePassword => true,
+            PasswordType::Bip39Passphrase => false,
+        },
         special_chars: match password_type {
             PasswordType::DevicePassword => false,
             PasswordType::Bip39Passphrase => true,

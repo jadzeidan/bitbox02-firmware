@@ -13,7 +13,8 @@ use util::futures::completion;
 
 mod choice;
 mod confirm;
-mod enter_string;
+pub mod enter_string;
+mod keypad;
 mod menu;
 mod status;
 

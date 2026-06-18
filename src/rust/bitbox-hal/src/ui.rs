@@ -46,6 +46,10 @@ pub struct EnterStringParams<'a> {
     pub longtouch: bool,
     pub cancel_is_backbutton: bool,
     pub default_to_digits: bool,
+    /// Hint that this entry is a numeric device PIN. The BitBox03 renders a dedicated numeric
+    /// keypad (PIN-titled, tap-to-confirm) for it; the BitBox02 ignores this flag and keeps its
+    /// regular entry screen.
+    pub pin: bool,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]

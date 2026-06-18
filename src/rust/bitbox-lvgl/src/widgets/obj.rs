@@ -8,7 +8,8 @@ use core::ptr::NonNull;
 
 use crate::{
     LvAlign, LvBaseDir, LvBlendMode, LvBorderSide, LvColor, LvEventCode, LvFlexAlign, LvFlexFlow,
-    LvFont, LvGradDir, LvGridAlign, LvOpa, LvStyleSelector, LvTextAlign, LvTextDecor, class, ffi,
+    LvFont, LvGradDir, LvGridAlign, LvObjFlag, LvOpa, LvState, LvStyleSelector, LvTextAlign,
+    LvTextDecor, class, ffi,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,6 +148,38 @@ pub trait ObjExt {
         self.add_event_cb(crate::LvEventCode::LV_EVENT_CLICKED, cb)
     }
 
+    /// Deletes all children of this object, leaving the object itself intact.
+    ///
+    /// Note: any Rust handles to the (now freed) children become dangling and must not be used
+    /// again. The handle to `self` stays valid.
+    fn clean(&self) {
+        unsafe { ffi::lv_obj_clean(self.as_ptr()) }
+    }
+
+    /// Adds one or more states (e.g. [`LvState::LV_STATE_PRESSED`]). Other state bits are unchanged.
+    /// If a matching style transition is configured, it animates from the previous state.
+    fn add_state(&self, state: LvState) {
+        unsafe { ffi::lv_obj_add_state(self.as_ptr(), state) }
+    }
+
+    /// Removes one or more states. Other state bits are unchanged.
+    fn remove_state(&self, state: LvState) {
+        unsafe { ffi::lv_obj_remove_state(self.as_ptr(), state) }
+    }
+
+    fn add_flag(&self, flag: LvObjFlag) {
+        unsafe { ffi::lv_obj_add_flag(self.as_ptr(), flag) }
+    }
+
+    fn remove_flag(&self, flag: LvObjFlag) {
+        unsafe { ffi::lv_obj_remove_flag(self.as_ptr(), flag) }
+    }
+
+    /// Returns the child at `index`, or `None` if out of range.
+    fn child(&self, index: i32) -> Option<LvObj> {
+        NonNull::new(unsafe { ffi::lv_obj_get_child(self.as_ptr(), index) }).map(LvHandle::from_ptr)
+    }
+
     /// # Safety
     ///
     /// After deletion, LVGL frees the object and may recursively free its children. Callers must
@@ -163,6 +196,16 @@ pub trait ObjExt {
     }
     fn set_flex_flow(&self, flow: crate::LvFlexFlow) {
         unsafe { ffi::lv_obj_set_flex_flow(self.as_ptr(), flow) }
+    }
+    fn set_flex_align(
+        &self,
+        main_place: LvFlexAlign,
+        cross_place: LvFlexAlign,
+        track_cross_place: LvFlexAlign,
+    ) {
+        unsafe {
+            ffi::lv_obj_set_flex_align(self.as_ptr(), main_place, cross_place, track_cross_place)
+        }
     }
 
     impl_obj_style_setter_methods!(

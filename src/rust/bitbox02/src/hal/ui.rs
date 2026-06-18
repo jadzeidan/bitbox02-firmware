@@ -327,6 +327,7 @@ mod tests {
             longtouch: true,
             cancel_is_backbutton: true,
             default_to_digits: true,
+            pin: true,
         };
         let output_without_wordlist =
             to_bitbox02_trinary_input_string_params(&input_without_wordlist);
@@ -349,6 +350,7 @@ mod tests {
             longtouch: false,
             cancel_is_backbutton: false,
             default_to_digits: false,
+            pin: false,
         };
         let output_with_wordlist = to_bitbox02_trinary_input_string_params(&input_with_wordlist);
         assert_eq!(output_with_wordlist.title, "Seed");
