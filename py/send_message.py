@@ -307,6 +307,17 @@ class SendMessage:
     def _check_sd_presence(self) -> None:
         print(f"SD Card inserted: {self._device.check_sdcard()}")
 
+    def _demo_nav_buttons(self) -> None:
+        """BitBox03 simulator only: show the navigation-button demo screen.
+
+        Reuses the "set device name" request with a sentinel name that the
+        simulator firmware intercepts (see set_device_name.rs). Close the demo
+        by tapping the X in the simulator window; this call returns afterwards.
+        """
+        print("Showing nav-button demo on the simulator. Tap the X to close it.")
+        self._device.set_device_name("__demo_nav__")
+        print("Demo screen closed")
+
     def _insert_sdcard(self) -> None:
         try:
             self._device.insert_sdcard()
@@ -1599,6 +1610,7 @@ class SendMessage:
             ("Reboot into bootloader", self._reboot),
             ("Check if SD card inserted", self._check_sd_presence),
             ("Upgrade Bluetooth firmware", self._bluetooth_upgrade),
+            ("Show nav-button demo (BB03 simulator)", self._demo_nav_buttons),
         )
         choice = ask_user(choices)
         if isinstance(choice, bool):
@@ -1652,6 +1664,7 @@ class SendMessage:
             ("Toggle bluetooth", self._bluetooth_toggle_enabled),
             ("Reset Device", self._reset_device),
             ("Change Password", self._change_password_workflow),
+            ("Show nav-button demo (BB03 simulator)", self._demo_nav_buttons),
         )
         choice = ask_user(choices)
         if isinstance(choice, bool):
