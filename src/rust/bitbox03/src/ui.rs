@@ -18,6 +18,7 @@ pub mod enter_string;
 pub mod menu;
 pub mod nav_button;
 mod status;
+pub mod unlock_animation;
 
 const LOGO: &[u8] = include_bytes!("../splash.png");
 
@@ -144,7 +145,18 @@ impl<Timer: bitbox_hal::timer::Timer> hal::ui::Ui for BitBox03Ui<Timer> {
     }
 
     async fn unlock_animation_play(&mut self, _animation: Self::UnlockAnimation) {
-        self.status("TODO\nunlock_animation", true).await
+        // Self-contained: push the lock screen, animate it from closed to open, then pop it on
+        // return (like `status`). Driving it entirely from here keeps the handle a ZST, so the
+        // `drop(unlock_animation)` error paths in the workflows stay trivially correct.
+        let (screen, view) = unlock_animation::build_screen();
+        let _screen = self.push_guard(screen);
+
+        Timer::delay_for(unlock_animation::START_HOLD).await;
+        for index in 1..unlock_animation::FRAME_COUNT {
+            view.show_frame(index);
+            Timer::delay_for(unlock_animation::FRAME_INTERVAL).await;
+        }
+        Timer::delay_for(unlock_animation::END_HOLD).await;
     }
 
     async fn enter_string(
