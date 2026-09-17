@@ -214,6 +214,10 @@ fn build_word_button(parent: &LvObj, word: &str, font: lvgl::LvFont) -> (LvButto
     let button = LvButton::new(parent).unwrap();
     button.set_style_radius(RADIUS, 0);
     style_outline_button(&button, BORDER_WIDTH);
+    // Unlike the (transparent) outline buttons, word buttons fly over other content — an opaque
+    // black fill looks identical on the black screen but occludes the text they pass over.
+    button.set_style_bg_color(lvgl::color::black(), 0);
+    button.set_style_bg_opa(LvOpacityLevel::LV_OPA_COVER as u8, 0);
 
     let label = LvLabel::new(&button).unwrap();
     label.set_text(word).unwrap();
@@ -870,53 +874,66 @@ mod tests {
         );
     }
 
-    /// Selecting a candidate flies its word from the row slot to the preview position: right
-    /// after the tap the preview is still translated towards the slot, and once the animation
-    /// completes it rests at the preview position.
+    /// Synthesizes a click, running the button's callback synchronously — unlike a scripted
+    /// touch there is no input/animation timing involved, so the flight's start state can be
+    /// asserted deterministically right after (the callback itself sets the start translate).
+    fn click(obj: &LvObj) {
+        unsafe {
+            ffi::lv_obj_send_event(
+                obj.as_ptr(),
+                lvgl::LvEventCode::LV_EVENT_CLICKED as ffi::lv_event_code_t,
+                core::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Selecting a candidate flies its word from the row slot to the preview position: the
+    /// flight starts down at the slot ("kite" sits left of and below the preview's spot) and
+    /// settles at the resting position.
     #[test]
     fn test_selection_flies_word_into_preview() {
         let _lock = lock_and_init();
-        let mut harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+        let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
 
-        // "kite" sits at the row's left edge, well off the preview's horizontal centre.
-        let kite = harness.candidate(0);
-        let slot = center(&harness.candidate(0));
-        harness.tap(&kite); // pumps 60ms of the 180ms flight
-        let rest = harness.preview_rest();
-        let (mid_x, mid_y) = center(&harness.preview());
+        click(&harness.candidate(0));
+        let (start_x, start_y) = Harness::translate(&harness.preview());
         assert!(
-            mid_x != rest.0,
-            "preview should still be en route from the slot"
+            start_x < 0,
+            "flight starts at the slot, left of the aligned centre"
         );
-        assert!(mid_y > rest.1, "preview flies up from the slot below");
-        assert!(mid_y < slot.1, "preview has left the slot");
+        assert!(
+            start_y > 0,
+            "flight starts at the slot, below the aligned centre"
+        );
 
-        pump_for(300); // let the flight finish
-        assert_eq!(center(&harness.preview()), rest);
+        pump_for(400); // let the 180ms flight finish, with generous slack
+        assert_eq!(center(&harness.preview()), harness.preview_rest());
     }
 
-    /// Deselecting flies the word back: the restored candidate starts translated at the preview
-    /// position and settles into its slot.
+    /// Deselecting flies the word back: the restored candidate starts translated up at the
+    /// preview position and settles into its slot.
     #[test]
     fn test_deselection_flies_word_back_to_slot() {
         let _lock = lock_and_init();
-        let mut harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+        let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
 
-        let kite = harness.candidate(0);
-        harness.tap(&kite);
-        pump_for(300); // let the fly-in finish
+        click(&harness.candidate(0));
+        pump_for(400); // let the fly-in finish
 
-        let preview = harness.preview();
-        harness.tap(&preview); // pumps 60ms of the fly-back
-        let (mid_x, mid_y) = Harness::translate(&harness.candidate(0));
+        click(&harness.preview());
+        let (start_x, start_y) = Harness::translate(&harness.candidate(0));
         assert!(
-            mid_x != 0,
-            "candidate should still be translated towards the preview"
+            start_x > 0,
+            "fly-back starts at the preview, right of kite's slot"
         );
-        assert!(mid_y != 0);
+        assert!(
+            start_y < 0,
+            "fly-back starts at the preview, above kite's slot"
+        );
 
-        pump_for(300);
+        pump_for(400);
         assert_eq!(Harness::translate(&harness.candidate(0)), (0, 0));
+        assert!(Harness::is_hidden(&harness.preview()));
     }
 
     /// Back (bottom-left) and Confirm (bottom-right) sit exactly where the confirm screen puts
@@ -933,6 +950,34 @@ mod tests {
         assert_eq!(confirm.x2, 480 - 50 - 1);
         assert_eq!(back.y2, 800 - 32 - 1);
         assert_eq!(confirm.y2, 800 - 32 - 1);
+    }
+
+    /// A flying word passes over other content (e.g. the prompt), so word buttons must have an
+    /// opaque black fill — a transparent one shows both texts on top of each other mid-flight.
+    #[test]
+    fn test_word_buttons_have_opaque_backgrounds() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+
+        for button in [harness.preview(), harness.candidate(0)] {
+            let opa = unsafe {
+                ffi::lv_obj_get_style_prop(
+                    button.as_ptr(),
+                    LvPart::LV_PART_MAIN,
+                    ffi::_lv_style_id_t::LV_STYLE_BG_OPA as ffi::lv_style_prop_t,
+                )
+            };
+            assert_eq!(unsafe { opa.num } as u8, 0xff);
+            let color = unsafe {
+                ffi::lv_obj_get_style_prop(
+                    button.as_ptr(),
+                    LvPart::LV_PART_MAIN,
+                    ffi::_lv_style_id_t::LV_STYLE_BG_COLOR as ffi::lv_style_prop_t,
+                )
+            };
+            let color = unsafe { color.color };
+            assert_eq!((color.red, color.green, color.blue), (0, 0, 0));
+        }
     }
 
     /// Despite this screen's narrowed side padding, the corner close button hugs the display
