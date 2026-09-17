@@ -6,9 +6,10 @@ use core::marker::PhantomData;
 use core::time::Duration;
 
 use bitbox_hal::Ui;
+use alloc::vec::Vec;
 use bitbox_hal::ui::{
-    CanCancel, ConfirmParams, Empty as HalEmpty, EnterStringParams, Font, Progress as HalProgress,
-    TrinaryChoice, UserAbort,
+    CanCancel, ConfirmParams, Empty as HalEmpty, EnterStringParams, Font, MnemonicQuizAbort,
+    Progress as HalProgress, TrinaryChoice, UserAbort,
 };
 
 pub struct BitBox02Ui<Timer = super::timer::BitBox02Timer> {
@@ -284,19 +285,33 @@ impl<Timer: bitbox_hal::timer::Timer> Ui for BitBox02Ui<Timer> {
         }
     }
 
-    async fn quiz_mnemonic_word(&mut self, choices: &[&str], title: &str) -> Result<u8, UserAbort> {
+    async fn confirm_mnemonic_word(
+        &mut self,
+        choices: &[&str],
+        word_idx: usize,
+        _num_words: usize,
+    ) -> Result<u8, MnemonicQuizAbort> {
+        // The menu pages through one choice per screen, so reviewing all words is offered as an
+        // extra choice at the end of the list.
+        let title = format!("{:02}", word_idx + 1);
+        let mut choices: Vec<&str> = choices.to_vec();
+        choices.push("Back to\nrecovery words");
+        let show_words_idx = (choices.len() - 1) as u8;
         match crate::ui::menu(crate::ui::MenuParams {
-            words: choices,
-            title: Some(title),
+            words: &choices,
+            title: Some(&title),
             select_word: true,
             continue_on_last: false,
             cancel_confirm_title: Some("Recovery\nwords"),
         })
         .await
         {
+            crate::ui::MenuResponse::SelectWord(choice_idx) if choice_idx == show_words_idx => {
+                Err(MnemonicQuizAbort::ShowWords)
+            }
             crate::ui::MenuResponse::SelectWord(choice_idx) => Ok(choice_idx),
             crate::ui::MenuResponse::ContinueOnLast => panic!("unexpected continue-on-last"),
-            crate::ui::MenuResponse::Cancel => Err(UserAbort),
+            crate::ui::MenuResponse::Cancel => Err(MnemonicQuizAbort::Cancel),
         }
     }
 }

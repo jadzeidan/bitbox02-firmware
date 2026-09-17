@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::hal::ui::{CanCancel, ConfirmParams, TrinaryChoice, UserAbort, WordlistEntryAbort};
+use crate::hal::ui::{
+    CanCancel, ConfirmParams, MnemonicQuizAbort, TrinaryChoice, UserAbort, WordlistEntryAbort,
+};
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -90,17 +92,29 @@ pub async fn show_and_confirm_mnemonic(
         .await;
 
     // Part 2) Confirm words
-    for (word_idx, word) in words.iter().enumerate() {
-        let title = format!("{:02}", word_idx + 1);
-        let (correct_idx, choices) = create_random_unique_words(hal_random, word, NUM_RANDOM_WORDS);
-        let mut choices: Vec<&str> = choices.iter().map(|c| c.as_ref()).collect();
-        choices.push("Back to\nrecovery words");
-        let back_idx = (choices.len() - 1) as u8;
+    let mut word_idx = 0;
+    while word_idx < words.len() {
+        let (correct_idx, choices) =
+            create_random_unique_words(hal_random, words[word_idx], NUM_RANDOM_WORDS);
+        let choices = as_str_vec(&choices);
         loop {
-            match hal_ui.quiz_mnemonic_word(&choices, &title).await? {
-                selected_idx if selected_idx == correct_idx => break,
-                selected_idx if selected_idx == back_idx => hal_ui.show_mnemonic(words).await?,
-                _ => hal_ui.status("Incorrect word\nTry again", false).await,
+            match hal_ui
+                .confirm_mnemonic_word(&choices, word_idx, words.len())
+                .await
+            {
+                Ok(selected_idx) if selected_idx == correct_idx => {
+                    word_idx += 1;
+                    break;
+                }
+                Ok(_) => hal_ui.status("Incorrect word\nTry again", false).await,
+                Err(MnemonicQuizAbort::Back) => {
+                    // A UI only offers the back control past the first word, but re-quizzing the
+                    // first word (with fresh choices) is a safe fallback.
+                    word_idx = word_idx.saturating_sub(1);
+                    break;
+                }
+                Err(MnemonicQuizAbort::ShowWords) => hal_ui.show_mnemonic(words).await?,
+                Err(MnemonicQuizAbort::Cancel) => return Err(UserAbort),
             }
         }
     }
@@ -451,6 +465,124 @@ mod tests {
         let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
         assert!(result.is_ok());
         TestingUi::assert_show_and_confirm_mnemonic_screens(&ui.screens, &words);
+    }
+
+    /// The 0-based word indices of the recorded word-confirmation screens.
+    fn confirmed_word_idxs(ui: &TestingUi) -> Vec<usize> {
+        ui.screens
+            .iter()
+            .filter_map(|screen| match screen {
+                crate::hal::testing::Screen::ConfirmMnemonicWord { word_idx, .. } => {
+                    Some(*word_idx)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The choice lists of the recorded word-confirmation screens.
+    fn confirmed_word_choices(ui: &TestingUi) -> Vec<Vec<String>> {
+        ui.screens
+            .iter()
+            .filter_map(|screen| match screen {
+                crate::hal::testing::Screen::ConfirmMnemonicWord { choices, .. } => {
+                    Some(choices.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[async_test::test]
+    async fn test_show_and_confirm_mnemonic_incorrect_word_retries_same_choices() {
+        let words = ["boring", "mistake", "dish", "oyster"];
+        let mut ui = TestingUi::new();
+        let mut random = TestingRandom::new();
+        // One choices set per word: a wrong pick re-quizzes the same choices without fresh
+        // randomness.
+        for _ in 0..words.len() {
+            TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        }
+        ui.push_quiz_choice(0); // wrong (the correct answer is at index 2)
+        ui.push_quiz_choice(2); // retry, correct
+        for _ in 1..words.len() {
+            ui.push_quiz_choice(2);
+        }
+
+        let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
+        assert!(result.is_ok());
+        assert!(ui.screens.iter().any(|screen| matches!(
+            screen,
+            crate::hal::testing::Screen::Status { title, success: false }
+                if title == "Incorrect word\nTry again"
+        )));
+        assert_eq!(confirmed_word_idxs(&ui), vec![0, 0, 1, 2, 3]);
+        let choices = confirmed_word_choices(&ui);
+        assert_eq!(choices[0], choices[1]);
+    }
+
+    #[async_test::test]
+    async fn test_show_and_confirm_mnemonic_back_requizzes_previous_word() {
+        let words = ["boring", "mistake", "dish", "oyster"];
+        let mut ui = TestingUi::new();
+        let mut random = TestingRandom::new();
+        // Going back from word 2 re-quizzes word 1 with fresh choices: words 1 and 2 consume a
+        // second set of randomness.
+        for _ in 0..words.len() + 2 {
+            TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        }
+        ui.push_quiz_choice(2); // word 1 correct
+        ui.push_quiz_abort(MnemonicQuizAbort::Back); // word 2: go back
+        ui.push_quiz_choice(2); // word 1 again
+        for _ in 1..words.len() {
+            ui.push_quiz_choice(2);
+        }
+
+        let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
+        assert!(result.is_ok());
+        assert_eq!(confirmed_word_idxs(&ui), vec![0, 1, 0, 1, 2, 3]);
+    }
+
+    #[async_test::test]
+    async fn test_show_and_confirm_mnemonic_show_words_requizzes_same_choices() {
+        let words = ["boring", "mistake", "dish", "oyster"];
+        let mut ui = TestingUi::new();
+        let mut random = TestingRandom::new();
+        for _ in 0..words.len() {
+            TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        }
+        ui.push_quiz_abort(MnemonicQuizAbort::ShowWords);
+        for _ in 0..words.len() {
+            ui.push_quiz_choice(2);
+        }
+
+        let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
+        assert!(result.is_ok());
+        // The words were shown again (once at the start of the workflow, once from the quiz),
+        // and the interrupted word was re-quizzed with the same choices.
+        let show_mnemonic_count = ui
+            .screens
+            .iter()
+            .filter(|screen| {
+                matches!(screen, crate::hal::testing::Screen::ShowMnemonic { .. })
+            })
+            .count();
+        assert_eq!(show_mnemonic_count, 2);
+        assert_eq!(confirmed_word_idxs(&ui), vec![0, 0, 1, 2, 3]);
+        let choices = confirmed_word_choices(&ui);
+        assert_eq!(choices[0], choices[1]);
+    }
+
+    #[async_test::test]
+    async fn test_show_and_confirm_mnemonic_cancel_aborts() {
+        let words = ["boring", "mistake", "dish", "oyster"];
+        let mut ui = TestingUi::new();
+        let mut random = TestingRandom::new();
+        TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        ui.push_quiz_abort(MnemonicQuizAbort::Cancel);
+
+        let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
+        assert!(result.is_err());
     }
 
     #[async_test::test]

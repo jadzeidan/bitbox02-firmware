@@ -21,6 +21,17 @@ pub enum WordlistEntryAbort {
     Unspecified,
 }
 
+/// How the user left a mnemonic-word confirmation (quiz) screen without picking a word.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MnemonicQuizAbort {
+    /// A dedicated back control (BitBox03): return to the previous word's quiz.
+    Back,
+    /// Review all recovery words again (the BitBox02 offers this as an extra menu choice).
+    ShowWords,
+    /// Abort the whole flow.
+    Cancel,
+}
+
 #[derive(Copy, Clone, Default)]
 pub enum Font {
     #[default]
@@ -188,6 +199,14 @@ pub trait Ui {
     async fn show_mnemonic(&mut self, words: &[&str]) -> Result<(), UserAbort>;
 
     /// Display these BIP39 mnemonic word choices to the user as part of the quiz to confirm the
-    /// user backuped up the mnemonic correctly.
-    async fn quiz_mnemonic_word(&mut self, choices: &[&str], title: &str) -> Result<u8, UserAbort>;
+    /// user backed up the mnemonic correctly. The user must pick the choice matching word
+    /// `word_idx` (0-based, of `num_words`); the picked index is returned. Instead of picking a
+    /// word the user can leave the screen as reported by [`MnemonicQuizAbort`]; which of those
+    /// controls exist is up to the UI.
+    async fn confirm_mnemonic_word(
+        &mut self,
+        choices: &[&str],
+        word_idx: usize,
+        num_words: usize,
+    ) -> Result<u8, MnemonicQuizAbort>;
 }
