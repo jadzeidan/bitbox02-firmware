@@ -237,10 +237,19 @@ impl<Timer: bitbox_hal::timer::Timer> hal::ui::Ui for BitBox03Ui<Timer> {
         word_idx: usize,
         num_words: usize,
     ) -> Result<u8, bitbox_hal::ui::MnemonicQuizAbort> {
+        // A selection in progress when cancel is requested is restored if the user then
+        // declines to cancel.
+        let mut preselected = None;
         loop {
             let action = self
                 .with_result_screen(|responder| {
-                    confirm_word::build_confirm_word_screen(choices, word_idx, num_words, responder)
+                    confirm_word::build_confirm_word_screen(
+                        choices,
+                        word_idx,
+                        num_words,
+                        preselected,
+                        responder,
+                    )
                 })
                 .await;
             match action {
@@ -248,7 +257,8 @@ impl<Timer: bitbox_hal::timer::Timer> hal::ui::Ui for BitBox03Ui<Timer> {
                 confirm_word::ConfirmWordAction::Back => {
                     return Err(bitbox_hal::ui::MnemonicQuizAbort::Back);
                 }
-                confirm_word::ConfirmWordAction::Cancel => {
+                confirm_word::ConfirmWordAction::Cancel(selected) => {
+                    preselected = selected;
                     match recovery_words::confirm_recovery_words_cancel(self).await {
                         Ok(()) => return Err(bitbox_hal::ui::MnemonicQuizAbort::Cancel),
                         Err(bitbox_hal::ui::UserAbort) => {}

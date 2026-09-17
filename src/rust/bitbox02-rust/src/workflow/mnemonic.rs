@@ -493,6 +493,18 @@ mod tests {
             .collect()
     }
 
+    /// Mocks the randomness of one `create_random_unique_words` call: the correct answer lands
+    /// at choice index 2 and the four random words are the wordlist entries `base..base + 3`.
+    /// Distinct bases make the prepared sets distinguishable, so re-quizzing with the SAME
+    /// choices can be told apart from (incorrectly) regenerated choices, which would draw the
+    /// next prepared set. Bases must stay clear of the tested words' own wordlist indices.
+    fn prepare_quiz_random(random: &mut TestingRandom, base: u16) {
+        TestingUi::mock_next_u16(random, 2);
+        for offset in 0..4 {
+            TestingUi::mock_next_u16(random, base + offset);
+        }
+    }
+
     #[async_test::test]
     async fn test_show_and_confirm_mnemonic_incorrect_word_retries_same_choices() {
         let words = ["boring", "mistake", "dish", "oyster"];
@@ -500,10 +512,11 @@ mod tests {
         let mut random = TestingRandom::new();
         // One choices set per word: a wrong pick re-quizzes the same choices without fresh
         // randomness.
-        for _ in 0..words.len() {
-            TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        for word_idx in 0..words.len() {
+            prepare_quiz_random(&mut random, 1500 + 100 * word_idx as u16);
         }
-        ui.push_quiz_choice(0); // wrong (the correct answer is at index 2)
+        ui.push_quiz_choice(4); // wrong, above the correct index 2
+        ui.push_quiz_choice(0); // wrong, below the correct index 2
         ui.push_quiz_choice(2); // retry, correct
         for _ in 1..words.len() {
             ui.push_quiz_choice(2);
@@ -511,14 +524,22 @@ mod tests {
 
         let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
         assert!(result.is_ok());
-        assert!(ui.screens.iter().any(|screen| matches!(
-            screen,
-            crate::hal::testing::Screen::Status { title, success: false }
-                if title == "Incorrect word\nTry again"
-        )));
-        assert_eq!(confirmed_word_idxs(&ui), vec![0, 0, 1, 2, 3]);
+        let incorrect_count = ui
+            .screens
+            .iter()
+            .filter(|screen| {
+                matches!(
+                    screen,
+                    crate::hal::testing::Screen::Status { title, success: false }
+                        if title == "Incorrect word\nTry again"
+                )
+            })
+            .count();
+        assert_eq!(incorrect_count, 2);
+        assert_eq!(confirmed_word_idxs(&ui), vec![0, 0, 0, 1, 2, 3]);
         let choices = confirmed_word_choices(&ui);
         assert_eq!(choices[0], choices[1]);
+        assert_eq!(choices[0], choices[2]);
     }
 
     #[async_test::test]
@@ -526,21 +547,47 @@ mod tests {
         let words = ["boring", "mistake", "dish", "oyster"];
         let mut ui = TestingUi::new();
         let mut random = TestingRandom::new();
-        // Going back from word 2 re-quizzes word 1 with fresh choices: words 1 and 2 consume a
-        // second set of randomness.
-        for _ in 0..words.len() + 2 {
-            TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        // Going back from word 3 re-quizzes word 2 (not word 1) with fresh choices: words 2 and
+        // 3 consume a second set of randomness each.
+        for word_idx in 0..words.len() + 2 {
+            prepare_quiz_random(&mut random, 1500 + 100 * word_idx as u16);
         }
         ui.push_quiz_choice(2); // word 1 correct
-        ui.push_quiz_abort(MnemonicQuizAbort::Back); // word 2: go back
-        ui.push_quiz_choice(2); // word 1 again
+        ui.push_quiz_choice(2); // word 2 correct
+        ui.push_quiz_abort(MnemonicQuizAbort::Back); // word 3: go back
+        ui.push_quiz_choice(2); // word 2 again
         for _ in 1..words.len() {
             ui.push_quiz_choice(2);
         }
 
         let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
         assert!(result.is_ok());
-        assert_eq!(confirmed_word_idxs(&ui), vec![0, 1, 0, 1, 2, 3]);
+        assert_eq!(confirmed_word_idxs(&ui), vec![0, 1, 2, 1, 2, 3]);
+        // The re-quizzed word gets fresh choices, not the cached ones from its first visit.
+        let choices = confirmed_word_choices(&ui);
+        assert_ne!(choices[1], choices[3]);
+    }
+
+    /// A UI never offers Back on the first word, but if one reports it anyway the workflow
+    /// re-quizzes the first word (with fresh choices) instead of panicking on an underflow.
+    #[async_test::test]
+    async fn test_show_and_confirm_mnemonic_back_on_first_word_requizzes_it() {
+        let words = ["boring", "mistake", "dish", "oyster"];
+        let mut ui = TestingUi::new();
+        let mut random = TestingRandom::new();
+        for word_idx in 0..words.len() + 1 {
+            prepare_quiz_random(&mut random, 1500 + 100 * word_idx as u16);
+        }
+        ui.push_quiz_abort(MnemonicQuizAbort::Back);
+        for _ in 0..words.len() {
+            ui.push_quiz_choice(2);
+        }
+
+        let result = show_and_confirm_mnemonic(&mut ui, &mut random, &words).await;
+        assert!(result.is_ok());
+        assert_eq!(confirmed_word_idxs(&ui), vec![0, 0, 1, 2, 3]);
+        let choices = confirmed_word_choices(&ui);
+        assert_ne!(choices[0], choices[1]);
     }
 
     #[async_test::test]
@@ -548,8 +595,8 @@ mod tests {
         let words = ["boring", "mistake", "dish", "oyster"];
         let mut ui = TestingUi::new();
         let mut random = TestingRandom::new();
-        for _ in 0..words.len() {
-            TestingUi::prepare_mnemonic_quiz_word_random(&mut random);
+        for word_idx in 0..words.len() {
+            prepare_quiz_random(&mut random, 1500 + 100 * word_idx as u16);
         }
         ui.push_quiz_abort(MnemonicQuizAbort::ShowWords);
         for _ in 0..words.len() {
@@ -563,9 +610,7 @@ mod tests {
         let show_mnemonic_count = ui
             .screens
             .iter()
-            .filter(|screen| {
-                matches!(screen, crate::hal::testing::Screen::ShowMnemonic { .. })
-            })
+            .filter(|screen| matches!(screen, crate::hal::testing::Screen::ShowMnemonic { .. }))
             .count();
         assert_eq!(show_mnemonic_count, 2);
         assert_eq!(confirmed_word_idxs(&ui), vec![0, 0, 1, 2, 3]);

@@ -9,7 +9,6 @@
 
 use alloc::format;
 use alloc::rc::Rc;
-use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -33,8 +32,9 @@ pub enum ConfirmWordAction {
     Selected(u8),
     /// Go back to the previous word's quiz.
     Back,
-    /// Request to cancel the workflow (the caller asks for confirmation).
-    Cancel,
+    /// Request to cancel the workflow (the caller asks for confirmation). Carries the candidate
+    /// selected at that moment, if any, so a declined cancel can restore the selection.
+    Cancel(Option<u8>),
 }
 
 /// This screen narrows the standard 50px side padding: two of the widest candidate buttons must
@@ -59,18 +59,55 @@ const CANDIDATE_ROW_GAP: i32 = 36;
 /// Horizontal / vertical padding between the preview box's border and its word.
 const PREVIEW_PAD_HOR: i32 = 12;
 const PREVIEW_PAD_VER: i32 = 10;
+/// Resting upward offset of the preview box above the exact centre of the subtitle/prompt gap,
+/// per the mockup.
+const PREVIEW_RAISE: i32 = -30;
+/// Duration of the animation flying a word between its row slot and the preview box.
+const FLY_MS: u32 = 180;
+/// How far above the candidates container a word flies while returning from the preview box.
+/// The container's ext draw size must cover it, or the flying word is clipped away (see the
+/// overflow note on the container).
+const FLY_OVERHANG: i32 = 300;
 
 const SUBTITLE_FONT: lvgl::LvFont = fonts::INTER_REGULAR_24;
 const PROMPT_FONT: lvgl::LvFont = fonts::INTER_REGULAR_24;
 const CANDIDATE_FONT: lvgl::LvFont = fonts::INTER_MEDIUM_32;
 const PREVIEW_FONT: lvgl::LvFont = fonts::INTER_MEDIUM_32;
 
+/// The on-screen centre of a widget, from its current layout coordinates.
+fn center(obj: &impl ObjExt) -> (i32, i32) {
+    let mut area = lvgl::LvArea {
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: 0,
+    };
+    unsafe { lvgl::ffi::lv_obj_get_coords(obj.as_ptr(), &mut area) };
+    ((area.x1 + area.x2 + 1) / 2, (area.y1 + area.y2 + 1) / 2)
+}
+
+/// Runs `f` on the label's content, borrowed in place from LVGL's buffer — no copy of the
+/// (possibly real) recovery word is made on the Rust heap.
+fn with_label_text<R>(label: &LvLabel, f: impl FnOnce(&str) -> R) -> R {
+    let text = unsafe { lvgl::ffi::lv_label_get_text(label.as_ptr()) };
+    if text.is_null() {
+        return f("");
+    }
+    let text = unsafe { core::ffi::CStr::from_ptr(text) };
+    f(text.to_str().expect("label text must be valid UTF-8"))
+}
+
 /// The selection state and the widgets it toggles.
 struct QuizState {
-    words: Vec<String>,
     /// Index of the currently selected candidate, if any.
     selected: Cell<Option<usize>>,
     candidates: Vec<LvButton>,
+    /// The word labels inside [`Self::candidates`]; the preview reads the selected word from
+    /// here, so no extra copies of the words are kept.
+    candidate_labels: Vec<LvLabel>,
+    /// The empty flex area between the subtitle and the prompt; the (floating) preview box
+    /// rests at its centre, [`PREVIEW_RAISE`] up.
+    preview_area: LvObj,
     preview: LvButton,
     preview_label: LvLabel,
     confirm: LvButton,
@@ -92,25 +129,71 @@ impl QuizState {
         }
     }
 
-    /// Selects the candidate at `index`: its word moves from the row to the preview box and the
-    /// confirm button becomes available.
-    fn select(&self, index: usize) {
-        if let Some(previous) = self.selected.replace(Some(index)) {
-            self.set_candidate_visible(previous, true);
+    /// Returns a candidate to its slot in the row. When animating, its word flies back from the
+    /// preview box's current position; the translate decays to zero, so no completion callback
+    /// is needed for the button to end up exactly in its slot.
+    fn restore_candidate(&self, index: usize, animate: bool) {
+        let button = &self.candidates[index];
+        self.set_candidate_visible(index, true);
+        if animate {
+            let (preview_x, preview_y) = center(&self.preview);
+            let (slot_x, slot_y) = center(button);
+            lvgl::anim::animate_translate(
+                button,
+                (preview_x - slot_x, preview_y - slot_y),
+                (0, 0),
+                FLY_MS,
+            );
+        } else {
+            button.set_style_translate_x(0, 0);
+            button.set_style_translate_y(0, 0);
         }
-        self.set_candidate_visible(index, false);
-        self.preview_label
-            .set_text(&self.words[index])
-            .expect("failed to set preview word");
-        self.preview.remove_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_HIDDEN);
-        set_nav_button_enabled(&self.confirm, &self.confirm_icon, true);
     }
 
-    /// Clears the selection: the previewed word returns to its slot in the row and the confirm
-    /// button grays out again.
+    /// Selects the candidate at `index`: its word moves from the row to the preview box and the
+    /// confirm button becomes available. When animating, the word visibly flies from its slot
+    /// to the preview position (and a previously selected word flies back to its slot).
+    fn select(&self, index: usize, animate: bool) {
+        if let Some(previous) = self.selected.replace(Some(index)) {
+            self.restore_candidate(previous, animate);
+        }
+        self.set_candidate_visible(index, false);
+        with_label_text(&self.candidate_labels[index], |word| {
+            self.preview_label.set_text(word)
+        })
+        .expect("failed to set preview word");
+        self.preview
+            .remove_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_HIDDEN);
+        set_nav_button_enabled(&self.confirm, &self.confirm_icon, true);
+
+        // The preview floats centred on the screen; lay the (just shown, just re-worded) box
+        // out there, then translate it to its resting spot at the preview area's centre,
+        // `PREVIEW_RAISE` up — flying in from the tapped candidate's slot when animating.
+        self.preview.set_style_translate_x(0, 0);
+        self.preview.set_style_translate_y(0, 0);
+        unsafe { lvgl::ffi::lv_obj_update_layout(self.preview.as_ptr()) };
+        let (aligned_x, aligned_y) = center(&self.preview);
+        let (area_x, area_y) = center(&self.preview_area);
+        let rest = (area_x - aligned_x, area_y + PREVIEW_RAISE - aligned_y);
+        if animate {
+            let (slot_x, slot_y) = center(&self.candidates[index]);
+            lvgl::anim::animate_translate(
+                &self.preview,
+                (slot_x - aligned_x, slot_y - aligned_y),
+                rest,
+                FLY_MS,
+            );
+        } else {
+            self.preview.set_style_translate_x(rest.0, 0);
+            self.preview.set_style_translate_y(rest.1, 0);
+        }
+    }
+
+    /// Clears the selection: the previewed word flies back to its slot in the row and the
+    /// confirm button grays out again.
     fn deselect(&self) {
         if let Some(previous) = self.selected.take() {
-            self.set_candidate_visible(previous, true);
+            self.restore_candidate(previous, true);
         }
         self.preview.add_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_HIDDEN);
         set_nav_button_enabled(&self.confirm, &self.confirm_icon, false);
@@ -131,15 +214,16 @@ fn build_word_button(parent: &LvObj, word: &str, font: lvgl::LvFont) -> (LvButto
     let button = LvButton::new(parent).unwrap();
     button.set_style_radius(RADIUS, 0);
     style_outline_button(&button, BORDER_WIDTH);
+    // Unlike the (transparent) outline buttons, word buttons fly over other content — an opaque
+    // black fill looks identical on the black screen but occludes the text they pass over.
+    button.set_style_bg_color(lvgl::color::black(), 0);
+    button.set_style_bg_opa(LvOpacityLevel::LV_OPA_COVER as u8, 0);
 
     let label = LvLabel::new(&button).unwrap();
     label.set_text(word).unwrap();
     label.set_style_text_font(font, lvgl::LvState::LV_STATE_DEFAULT as u32);
     label.set_style_text_color(lvgl::color::white(), 0);
-    label.set_style_text_color(
-        lvgl::color::black(),
-        lvgl::LvState::LV_STATE_PRESSED as u32,
-    );
+    label.set_style_text_color(lvgl::color::black(), lvgl::LvState::LV_STATE_PRESSED as u32);
     label.align(LvAlign::LV_ALIGN_CENTER, 0, 0);
 
     let label_part = button.child(0).expect("word button label");
@@ -151,11 +235,14 @@ fn build_word_button(parent: &LvObj, word: &str, font: lvgl::LvFont) -> (LvButto
 /// Builds the word-confirmation screen for word `word_idx` (0-based) of `num_words`. Selecting a
 /// candidate and confirming resolves [`ConfirmWordAction::Selected`] with the candidate's index;
 /// the back button (only present past the first word) resolves [`ConfirmWordAction::Back`]; the
-/// corner close button resolves [`ConfirmWordAction::Cancel`].
+/// corner close button resolves [`ConfirmWordAction::Cancel`]. A `preselected` candidate starts
+/// out selected (without the fly-in animation), so a rebuilt screen — e.g. after a declined
+/// cancel — restores the user's selection.
 pub fn build_confirm_word_screen(
     choices: &[&str],
     word_idx: usize,
     num_words: usize,
+    preselected: Option<u8>,
     responder: Responder<ConfirmWordAction>,
 ) -> LvObj {
     assert!(!choices.is_empty(), "confirm word screen requires choices");
@@ -193,17 +280,11 @@ pub fn build_confirm_word_screen(
         SUBTITLE_FONT,
     );
 
-    // The preview box, centred in the empty area between the subtitle and the prompt; hidden
-    // until a candidate is selected.
+    // The empty area between the subtitle and the prompt, absorbing the column's slack. The
+    // preview box rests at its centre but is created floating at the end of the screen (so a
+    // flying word draws over — and is not clipped by — the widgets it passes).
     let preview_area = LvObj::with_parent(&screen).unwrap();
     preview_area.set_width(380);
-    preview_area.set_layout(lvgl::LvLayout::LV_LAYOUT_FLEX);
-    preview_area.set_flex_flow(lvgl::LvFlexFlow::LV_FLEX_FLOW_ROW);
-    preview_area.set_style_flex_main_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
-    preview_area.set_style_flex_cross_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
-    // Centres the (single) track vertically; `flex_cross_place` alone does not move content
-    // along the cross axis of this grown container.
-    preview_area.set_style_flex_track_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
     preview_area.set_style_flex_grow(1, 0);
     preview_area.set_style_pad_top(0, 0);
     preview_area.set_style_pad_bottom(0, 0);
@@ -211,15 +292,7 @@ pub fn build_confirm_word_screen(
     preview_area.set_style_pad_right(0, 0);
     preview_area.set_style_border_width(0, 0);
     preview_area.set_style_bg_opa(LvOpacityLevel::LV_OPA_TRANSP as u8, 0);
-
-    let (preview, preview_label) = build_word_button(&preview_area, "", PREVIEW_FONT);
-    preview.set_style_pad_left(PREVIEW_PAD_HOR, 0);
-    preview.set_style_pad_right(PREVIEW_PAD_HOR, 0);
-    preview.set_style_pad_top(PREVIEW_PAD_VER, 0);
-    preview.set_style_pad_bottom(PREVIEW_PAD_VER, 0);
-    // Nudge the box above the exact centre of the subtitle/prompt gap, per the mockup.
-    preview.set_style_translate_y(-30, 0);
-    preview.add_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_HIDDEN);
+    preview_area.remove_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_CLICKABLE);
 
     add_centered_label(&screen, "Select the correct recovery word", PROMPT_FONT);
 
@@ -241,17 +314,33 @@ pub fn build_confirm_word_screen(
     // Set the prompt and the navigation row a bit further apart than the standard row gap.
     candidates_container.set_style_margin_top(16, 0);
     candidates_container.set_style_margin_bottom(48, 0);
+    // A deselected word flies from the preview box back into its slot, drawn far above the
+    // container on the way. OVERFLOW_VISIBLE alone is not enough: it only widens the children
+    // clip rect by the container's own ext draw size, so that must cover the flight path too.
+    candidates_container.add_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    unsafe extern "C" fn refresh_ext_draw_size_cb(event: *mut lvgl::ffi::lv_event_t) {
+        unsafe { lvgl::ffi::lv_event_set_ext_draw_size(event, FLY_OVERHANG) };
+    }
+    unsafe {
+        lvgl::ffi::lv_obj_add_event_cb(
+            candidates_container.as_ptr(),
+            Some(refresh_ext_draw_size_cb),
+            lvgl::LvEventCode::LV_EVENT_REFR_EXT_DRAW_SIZE,
+            core::ptr::null_mut(),
+        );
+        lvgl::ffi::lv_obj_refresh_ext_draw_size(candidates_container.as_ptr());
+    }
 
-    let candidates: Vec<LvButton> = choices
-        .iter()
-        .map(|word| {
-            let (button, _label) = build_word_button(&candidates_container, word, CANDIDATE_FONT);
-            button.set_height(CANDIDATE_HEIGHT);
-            button.set_style_pad_left(CANDIDATE_PAD, 0);
-            button.set_style_pad_right(CANDIDATE_PAD, 0);
-            button
-        })
-        .collect();
+    let mut candidates: Vec<LvButton> = Vec::with_capacity(choices.len());
+    let mut candidate_labels: Vec<LvLabel> = Vec::with_capacity(choices.len());
+    for word in choices {
+        let (button, label) = build_word_button(&candidates_container, word, CANDIDATE_FONT);
+        button.set_height(CANDIDATE_HEIGHT);
+        button.set_style_pad_left(CANDIDATE_PAD, 0);
+        button.set_style_pad_right(CANDIDATE_PAD, 0);
+        candidates.push(button);
+        candidate_labels.push(label);
+    }
 
     let actions = transparent_row(&screen, 380, 82);
     // Keep Back on the left and Confirm on the right, whichever are present.
@@ -278,31 +367,47 @@ pub fn build_confirm_word_screen(
     set_nav_button_enabled(&confirm, &confirm_icon, false);
 
     // Cancel lives in the top-right corner so it doesn't crowd the bottom navigation.
-    let cancel_responder = responder.clone();
     let close = build_close_button(&screen);
     // Re-align for this screen's narrowed side padding, keeping the button ~12px from the
     // display corner like on the 50px-padded screens.
     close.align(LvAlign::LV_ALIGN_TOP_RIGHT, SIDE_PAD - 12, -28);
-    close
-        .add_click_cb(move || {
-            cancel_responder.resolve(ConfirmWordAction::Cancel);
-        })
-        .expect("failed to register cancel callback");
+
+    // The preview box: the last (topmost) child, floating so the screen's flex column ignores
+    // it, hidden until a candidate is selected. [`QuizState::select`] translates it from this
+    // aligned position to its resting spot over the preview area.
+    let (preview, preview_label) = build_word_button(&screen, "", PREVIEW_FONT);
+    preview.set_style_pad_left(PREVIEW_PAD_HOR, 0);
+    preview.set_style_pad_right(PREVIEW_PAD_HOR, 0);
+    preview.set_style_pad_top(PREVIEW_PAD_VER, 0);
+    preview.set_style_pad_bottom(PREVIEW_PAD_VER, 0);
+    preview.add_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_FLOATING);
+    preview.align(LvAlign::LV_ALIGN_CENTER, 0, 0);
+    preview.add_flag(lvgl::LvObjFlag::LV_OBJ_FLAG_HIDDEN);
 
     let state = Rc::new(QuizState {
-        words: choices.iter().map(|word| word.to_string()).collect(),
         selected: Cell::new(None),
         candidates,
+        candidate_labels,
+        preview_area,
         preview,
         preview_label,
         confirm,
         confirm_icon,
     });
 
+    let cancel_responder = responder.clone();
+    let cancel_state = Rc::clone(&state);
+    close
+        .add_click_cb(move || {
+            let selected = cancel_state.selected.get().map(|index| index as u8);
+            cancel_responder.resolve(ConfirmWordAction::Cancel(selected));
+        })
+        .expect("failed to register cancel callback");
+
     for (index, candidate) in state.candidates.iter().enumerate() {
         let select_state = Rc::clone(&state);
         candidate
-            .add_click_cb(move || select_state.select(index))
+            .add_click_cb(move || select_state.select(index, true))
             .expect("failed to register candidate callback");
     }
 
@@ -323,6 +428,13 @@ pub fn build_confirm_word_screen(
             }
         })
         .expect("failed to register confirm callback");
+
+    if let Some(index) = preselected {
+        let index = usize::from(index);
+        if index < state.candidates.len() {
+            state.select(index, false);
+        }
+    }
 
     screen
 }
@@ -368,9 +480,19 @@ mod tests {
 
     impl Harness {
         fn new(choices: &[&str], word_idx: usize, num_words: usize) -> Self {
+            Self::new_preselected(choices, word_idx, num_words, None)
+        }
+
+        fn new_preselected(
+            choices: &[&str],
+            word_idx: usize,
+            num_words: usize,
+            preselected: Option<u8>,
+        ) -> Self {
             let touch = ScriptedTouch::new();
             let (responder, result) = completion::completion();
-            let screen = build_confirm_word_screen(choices, word_idx, num_words, responder);
+            let screen =
+                build_confirm_word_screen(choices, word_idx, num_words, preselected, responder);
             unsafe { ffi::lv_screen_load(screen.as_ptr()) };
             pump_for(60); // layout + first render
             Self {
@@ -395,12 +517,19 @@ mod tests {
             self.screen.child(1).expect("subtitle")
         }
 
+        fn preview_area(&self) -> LvObj {
+            self.screen.child(2).expect("preview area")
+        }
+
         fn preview(&self) -> LvObj {
-            self.screen
-                .child(2)
-                .expect("preview area")
-                .child(0)
-                .expect("preview")
+            // The preview floats as the last (topmost) child, after the close button.
+            self.screen.child(7).expect("preview")
+        }
+
+        /// Where the preview rests: the preview area's centre, `PREVIEW_RAISE` up.
+        fn preview_rest(&self) -> (i32, i32) {
+            let (x, y) = center(&self.preview_area());
+            (x, y + PREVIEW_RAISE)
         }
 
         fn preview_word(&self) -> String {
@@ -461,6 +590,24 @@ mod tests {
                 )
             };
             unsafe { value.num as u8 }
+        }
+
+        /// The resolved translate style (nonzero while a word is flying in or out).
+        fn translate(obj: &LvObj) -> (i32, i32) {
+            let read = |prop: ffi::_lv_style_id_t| {
+                let value = unsafe {
+                    ffi::lv_obj_get_style_prop(
+                        obj.as_ptr(),
+                        LvPart::LV_PART_MAIN,
+                        prop as ffi::lv_style_prop_t,
+                    )
+                };
+                unsafe { value.num }
+            };
+            (
+                read(ffi::_lv_style_id_t::LV_STYLE_TRANSLATE_X),
+                read(ffi::_lv_style_id_t::LV_STYLE_TRANSLATE_Y),
+            )
         }
 
         fn tap(&mut self, obj: &LvObj) {
@@ -571,9 +718,11 @@ mod tests {
         // (invisible) selected one.
         for (index, area) in before.iter().enumerate() {
             let after = coords(&harness.candidate(index));
-            assert_eq!((area.x1, area.y1, area.x2, area.y2),
+            assert_eq!(
+                (area.x1, area.y1, area.x2, area.y2),
                 (after.x1, after.y1, after.x2, after.y2),
-                "candidate {index} moved on selection");
+                "candidate {index} moved on selection"
+            );
         }
         for index in [0, 2, 3, 4] {
             assert_eq!(Harness::opa(&harness.candidate(index)), 0xff);
@@ -685,8 +834,106 @@ mod tests {
         harness.tap(&close);
         assert!(matches!(
             poll_once(&mut harness.result).expect("close resolves"),
-            ConfirmWordAction::Cancel
+            ConfirmWordAction::Cancel(None)
         ));
+    }
+
+    /// Cancelling with a word selected reports that selection, so a declined cancel can restore
+    /// it on the rebuilt screen.
+    #[test]
+    fn test_close_reports_current_selection() {
+        let _lock = lock_and_init();
+        let mut harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+
+        let outdoor = harness.candidate(2);
+        harness.tap(&outdoor);
+        let close = harness.close_button();
+        harness.tap(&close);
+        assert!(matches!(
+            poll_once(&mut harness.result).expect("close resolves"),
+            ConfirmWordAction::Cancel(Some(2))
+        ));
+    }
+
+    /// A preselected candidate (a rebuilt screen after a declined cancel) starts out selected,
+    /// with the preview already at its resting position (no fly-in animation).
+    #[test]
+    fn test_preselected_candidate_starts_selected() {
+        let _lock = lock_and_init();
+        let harness = Harness::new_preselected(&MOCKUP_WORDS, 0, 24, Some(1));
+
+        assert!(!Harness::is_hidden(&harness.preview()));
+        assert_eq!(harness.preview_word(), "rude");
+        assert_eq!(Harness::opa(&harness.candidate(1)), 0);
+        let confirm = harness.confirm_button();
+        assert!(!Harness::is_disabled(&confirm));
+        assert_eq!(
+            center(&harness.preview()),
+            harness.preview_rest(),
+            "no fly-in on a rebuilt screen: the preview starts at its resting spot"
+        );
+    }
+
+    /// Synthesizes a click, running the button's callback synchronously — unlike a scripted
+    /// touch there is no input/animation timing involved, so the flight's start state can be
+    /// asserted deterministically right after (the callback itself sets the start translate).
+    fn click(obj: &LvObj) {
+        unsafe {
+            ffi::lv_obj_send_event(
+                obj.as_ptr(),
+                lvgl::LvEventCode::LV_EVENT_CLICKED as ffi::lv_event_code_t,
+                core::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Selecting a candidate flies its word from the row slot to the preview position: the
+    /// flight starts down at the slot ("kite" sits left of and below the preview's spot) and
+    /// settles at the resting position.
+    #[test]
+    fn test_selection_flies_word_into_preview() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+
+        click(&harness.candidate(0));
+        let (start_x, start_y) = Harness::translate(&harness.preview());
+        assert!(
+            start_x < 0,
+            "flight starts at the slot, left of the aligned centre"
+        );
+        assert!(
+            start_y > 0,
+            "flight starts at the slot, below the aligned centre"
+        );
+
+        pump_for(400); // let the 180ms flight finish, with generous slack
+        assert_eq!(center(&harness.preview()), harness.preview_rest());
+    }
+
+    /// Deselecting flies the word back: the restored candidate starts translated up at the
+    /// preview position and settles into its slot.
+    #[test]
+    fn test_deselection_flies_word_back_to_slot() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+
+        click(&harness.candidate(0));
+        pump_for(400); // let the fly-in finish
+
+        click(&harness.preview());
+        let (start_x, start_y) = Harness::translate(&harness.candidate(0));
+        assert!(
+            start_x > 0,
+            "fly-back starts at the preview, right of kite's slot"
+        );
+        assert!(
+            start_y < 0,
+            "fly-back starts at the preview, above kite's slot"
+        );
+
+        pump_for(400);
+        assert_eq!(Harness::translate(&harness.candidate(0)), (0, 0));
+        assert!(Harness::is_hidden(&harness.preview()));
     }
 
     /// Back (bottom-left) and Confirm (bottom-right) sit exactly where the confirm screen puts
@@ -703,6 +950,34 @@ mod tests {
         assert_eq!(confirm.x2, 480 - 50 - 1);
         assert_eq!(back.y2, 800 - 32 - 1);
         assert_eq!(confirm.y2, 800 - 32 - 1);
+    }
+
+    /// A flying word passes over other content (e.g. the prompt), so word buttons must have an
+    /// opaque black fill — a transparent one shows both texts on top of each other mid-flight.
+    #[test]
+    fn test_word_buttons_have_opaque_backgrounds() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
+
+        for button in [harness.preview(), harness.candidate(0)] {
+            let opa = unsafe {
+                ffi::lv_obj_get_style_prop(
+                    button.as_ptr(),
+                    LvPart::LV_PART_MAIN,
+                    ffi::_lv_style_id_t::LV_STYLE_BG_OPA as ffi::lv_style_prop_t,
+                )
+            };
+            assert_eq!(unsafe { opa.num } as u8, 0xff);
+            let color = unsafe {
+                ffi::lv_obj_get_style_prop(
+                    button.as_ptr(),
+                    LvPart::LV_PART_MAIN,
+                    ffi::_lv_style_id_t::LV_STYLE_BG_COLOR as ffi::lv_style_prop_t,
+                )
+            };
+            let color = unsafe { color.color };
+            assert_eq!((color.red, color.green, color.blue), (0, 0, 0));
+        }
     }
 
     /// Despite this screen's narrowed side padding, the corner close button hugs the display
@@ -724,7 +999,10 @@ mod tests {
         let harness = Harness::new(&MOCKUP_WORDS, 0, 24);
 
         let title = coords(&harness.title());
-        assert_eq!(title.y2 - title.y1 + 1, fonts::INTER_REGULAR_32.line_height());
+        assert_eq!(
+            title.y2 - title.y1 + 1,
+            fonts::INTER_REGULAR_32.line_height()
+        );
     }
 
     /// Any two candidate buttons must fit side by side in the candidates container, so five
@@ -755,8 +1033,14 @@ mod tests {
         let mut harness = Harness::new(&words, 0, 24);
 
         // Three rows: two pairs and a remainder.
-        assert_eq!(coords(&harness.candidate(0)).y1, coords(&harness.candidate(1)).y1);
-        assert_eq!(coords(&harness.candidate(2)).y1, coords(&harness.candidate(3)).y1);
+        assert_eq!(
+            coords(&harness.candidate(0)).y1,
+            coords(&harness.candidate(1)).y1
+        );
+        assert_eq!(
+            coords(&harness.candidate(2)).y1,
+            coords(&harness.candidate(3)).y1
+        );
         assert!(coords(&harness.candidate(2)).y1 > coords(&harness.candidate(1)).y1);
         assert!(coords(&harness.candidate(4)).y1 > coords(&harness.candidate(3)).y1);
 
@@ -766,6 +1050,7 @@ mod tests {
 
         let candidate = harness.candidate(0);
         harness.tap(&candidate);
+        pump_for(300); // let the fly-in animation settle at the resting position
         let preview = coords(&harness.preview());
         let subtitle = coords(&harness.subtitle());
         assert!(preview.y1 > subtitle.y2);
