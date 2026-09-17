@@ -54,6 +54,7 @@ pub use ffi::lv_text_align_t as LvTextAlign;
 pub use ffi::lv_text_decor_t as LvTextDecor;
 pub use ffi::lv_value_precise_t as LvValuePrecise;
 
+pub mod anim;
 pub mod color;
 pub mod display;
 pub mod indev;

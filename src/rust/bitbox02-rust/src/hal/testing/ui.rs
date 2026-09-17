@@ -2,8 +2,8 @@
 
 use crate::hal::Ui;
 use crate::hal::ui::{
-    CanCancel, ConfirmParams, Empty, EnterStringParams, MnemonicQuizAbort, Progress,
-    TrinaryChoice, UserAbort, WordlistEntryAbort,
+    CanCancel, ConfirmParams, Empty, EnterStringParams, MnemonicQuizAbort, Progress, TrinaryChoice,
+    UserAbort, WordlistEntryAbort,
 };
 
 use alloc::boxed::Box;
@@ -298,20 +298,24 @@ impl Ui for TestingUi<'_> {
             panic!("confirm_mnemonic_word called without queued response; use push_quiz_choice")
         });
 
+        // When `abort_nth` fires on this screen, record the cancel the workflow actually
+        // receives, not the queued response it never saw.
+        let abort = self
+            ._abort_nth
+            .as_ref()
+            .is_some_and(|&n| self.screens.len() == n);
+        let response = if abort {
+            Err(MnemonicQuizAbort::Cancel)
+        } else {
+            response
+        };
+
         self.screens.push(Screen::ConfirmMnemonicWord {
             word_idx,
             num_words,
             choices: choices.iter().map(|choice| (*choice).into()).collect(),
             response,
         });
-
-        if self
-            ._abort_nth
-            .as_ref()
-            .is_some_and(|&n| self.screens.len() - 1 == n)
-        {
-            return Err(MnemonicQuizAbort::Cancel);
-        }
 
         if let Ok(selected) = response
             && selected as usize >= choices.len()
@@ -390,12 +394,6 @@ impl<'a> TestingUi<'a> {
 
     pub fn push_quiz_choice(&mut self, selected: u8) {
         self._confirm_word_responses.push_back(Ok(selected));
-    }
-
-    pub fn push_quiz_choices(&mut self, selected: &[u8]) {
-        for choice in selected {
-            self.push_quiz_choice(*choice);
-        }
     }
 
     /// Script leaving the next word-confirmation screen without picking a word.
@@ -571,12 +569,33 @@ mod tests {
         );
     }
 
+    /// The exact boundary: with one choice, index 1 is already out of bounds.
     #[async_test::test]
-    #[should_panic(expected = "quiz choice 9 out of bounds for 1 choices")]
+    #[should_panic(expected = "quiz choice 1 out of bounds for 1 choices")]
     async fn test_quiz_choice_out_of_bounds_panics() {
         let mut ui = TestingUi::new();
-        ui.push_quiz_choice(9);
+        ui.push_quiz_choice(1);
         let _ = ui.confirm_mnemonic_word(&["a"], 0, 24).await;
+    }
+
+    /// `abort_nth` on a quiz screen returns Cancel and records that cancel, not the queued
+    /// response the workflow never saw.
+    #[async_test::test]
+    async fn test_quiz_abort_nth_records_the_cancel() {
+        let mut ui = TestingUi::new();
+        ui.abort_nth(0);
+        ui.push_quiz_choice(2);
+        assert_eq!(
+            ui.confirm_mnemonic_word(&["a", "b", "c"], 0, 24).await,
+            Err(MnemonicQuizAbort::Cancel)
+        );
+        assert!(matches!(
+            ui.screens[0],
+            Screen::ConfirmMnemonicWord {
+                response: Err(MnemonicQuizAbort::Cancel),
+                ..
+            }
+        ));
     }
 
     #[async_test::test]

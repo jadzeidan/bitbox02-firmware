@@ -5,8 +5,8 @@ use alloc::string::String;
 use core::marker::PhantomData;
 use core::time::Duration;
 
-use bitbox_hal::Ui;
 use alloc::vec::Vec;
+use bitbox_hal::Ui;
 use bitbox_hal::ui::{
     CanCancel, ConfirmParams, Empty as HalEmpty, EnterStringParams, Font, MnemonicQuizAbort,
     Progress as HalProgress, TrinaryChoice, UserAbort,
@@ -31,6 +31,16 @@ pub struct BitBox02Empty {
 }
 
 impl HalEmpty for BitBox02Empty {}
+
+/// Appends the extra "review all words" choice for the mnemonic-word quiz menu and returns the
+/// extended list together with that choice's index. The menu pages one choice per screen, so
+/// reviewing the words is offered as a last menu entry rather than a dedicated control.
+fn choices_with_show_words<'a>(choices: &[&'a str]) -> (Vec<&'a str>, u8) {
+    let mut all = choices.to_vec();
+    all.push("Back to\nrecovery words");
+    let show_words_idx = (all.len() - 1) as u8;
+    (all, show_words_idx)
+}
 
 fn to_bitbox02_font(font: Font) -> crate::ui::Font {
     match font {
@@ -291,12 +301,8 @@ impl<Timer: bitbox_hal::timer::Timer> Ui for BitBox02Ui<Timer> {
         word_idx: usize,
         _num_words: usize,
     ) -> Result<u8, MnemonicQuizAbort> {
-        // The menu pages through one choice per screen, so reviewing all words is offered as an
-        // extra choice at the end of the list.
         let title = format!("{:02}", word_idx + 1);
-        let mut choices: Vec<&str> = choices.to_vec();
-        choices.push("Back to\nrecovery words");
-        let show_words_idx = (choices.len() - 1) as u8;
+        let (choices, show_words_idx) = choices_with_show_words(choices);
         match crate::ui::menu(crate::ui::MenuParams {
             words: &choices,
             title: Some(&title),
@@ -319,6 +325,18 @@ impl<Timer: bitbox_hal::timer::Timer> Ui for BitBox02Ui<Timer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The "show words" menu entry must be the appended last choice; a wrong index would show
+    /// the words when the user picked a (correct or wrong) word, or vice versa.
+    #[test]
+    fn test_choices_with_show_words() {
+        let (all, show_words_idx) = choices_with_show_words(&["a", "b", "c", "d", "e"]);
+        assert_eq!(
+            all,
+            vec!["a", "b", "c", "d", "e", "Back to\nrecovery words"]
+        );
+        assert_eq!(show_words_idx, 5);
+    }
 
     #[test]
     fn test_to_bitbox02_font() {

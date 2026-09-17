@@ -67,7 +67,9 @@ fn main() {
     let out_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "confirm_word_preview.bmp".to_string());
-    let mode = std::env::args().nth(2).unwrap_or_else(|| "word1".to_string());
+    let mode = std::env::args()
+        .nth(2)
+        .unwrap_or_else(|| "word1".to_string());
 
     lvgl::system::init();
     lvgl::tick::set_cb(Some(now_ms));
@@ -123,7 +125,7 @@ fn main() {
     };
 
     let (responder, _result) = util::futures::completion::completion();
-    let screen = build_confirm_word_screen(words, word_idx, 24, responder);
+    let screen = build_confirm_word_screen(words, word_idx, 24, None, responder);
     display.screen_load(screen);
 
     // First frame.
@@ -138,7 +140,12 @@ fn main() {
 
     if mode == "selected" {
         // Synthesize a click on candidate 1 ("rude") after the first flushed frame, then let the
-        // (1ms) style transitions settle before capturing.
+        // style transitions and the fly-in animation run for the given time before capturing
+        // (default 300ms = settled; smaller values capture the word mid-flight).
+        let settle_ms: u64 = std::env::args()
+            .nth(3)
+            .and_then(|arg| arg.parse().ok())
+            .unwrap_or(300);
         let active = display.screen_active().expect("active screen");
         let candidates = active.child(4).expect("candidates container");
         let rude = candidates.child(1).expect("candidate 1");
@@ -150,7 +157,7 @@ fn main() {
             );
         }
         flushed.set(false);
-        let settle_until = Instant::now() + Duration::from_millis(300);
+        let settle_until = Instant::now() + Duration::from_millis(settle_ms);
         while Instant::now() < settle_until {
             lvgl::timer::handler();
             std::thread::sleep(Duration::from_millis(2));
