@@ -31,6 +31,10 @@ try:
     from bitbox02.communication.generated import btc_pb2 as btc
     from bitbox02.communication.generated import cardano_pb2 as cardano
     from bitbox02.communication.generated import mnemonic_pb2 as mnemonic
+    from bitbox02.communication.generated import solana_pb2 as solana
+    from bitbox02.communication.generated import tron_pb2 as tron
+    from bitbox02.communication.generated import xrp_pb2 as xrp
+    from bitbox02.communication.generated import zcash_pb2 as zcash
     from bitbox02.communication.generated import bitbox02_system_pb2 as bitbox02_system
     from bitbox02.communication.generated import backup_commands_pb2 as backup
     from bitbox02.communication.generated import bitboxsync_pb2 as bitboxsync
@@ -1341,6 +1345,135 @@ class BitBox02(BitBoxCommonAPI):
             request, expected_response="sign_transaction"
         ).sign_transaction
 
+    # New protobuf modules are generated dynamically and are not understood by Pylint/Astroid.
+    # Keep the existing Bluetooth helper in this block because its generated annotations have the
+    # same limitation.
+    # pylint: disable=no-member
+    def _solana_msg_query(
+        self, solana_request: solana.SolanaRequest, expected_response: Optional[str] = None
+    ) -> solana.SolanaResponse:
+        """Send a Solana request and validate the nested response type."""
+        request = hww.Request()
+        request.solana.CopyFrom(solana_request)
+        response = self._msg_query(request, expected_response="solana").solana
+        if expected_response is not None and response.WhichOneof("response") != expected_response:
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    response.WhichOneof("response"), expected_response
+                )
+            )
+        return response
+
+    def solana_address(self, keypath: Sequence[int], display: bool = True) -> str:
+        """Return the Solana address at a SLIP-0010 Ed25519 keypath."""
+        request = solana.SolanaRequest(
+            pub=solana.SolanaPubRequest(keypath=keypath, display=display)
+        )
+        return self._solana_msg_query(request, expected_response="pub").pub.pub
+
+    def solana_sign_transaction(
+        self, network: "solana.SolanaNetwork.V", keypath: Sequence[int], message: bytes
+    ) -> solana.SolanaSignTransactionResponse:
+        """Sign a canonical serialized Solana legacy or v0 message."""
+        request = solana.SolanaRequest(
+            sign_transaction=solana.SolanaSignTransactionRequest(
+                network=network, keypath=keypath, message=message
+            )
+        )
+        return self._solana_msg_query(
+            request, expected_response="sign_transaction"
+        ).sign_transaction
+
+    def _xrp_msg_query(
+        self, xrp_request: xrp.XrpRequest, expected_response: Optional[str] = None
+    ) -> xrp.XrpResponse:
+        """Send an XRP request and validate the nested response type."""
+        request = hww.Request()
+        request.xrp.CopyFrom(xrp_request)
+        response = self._msg_query(request, expected_response="xrp").xrp
+        if expected_response is not None and response.WhichOneof("response") != expected_response:
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    response.WhichOneof("response"), expected_response
+                )
+            )
+        return response
+
+    def xrp_address(self, keypath: Sequence[int], display: bool = True) -> str:
+        """Return the XRP classic address at a BIP44 keypath."""
+        request = xrp.XrpRequest(pub=xrp.XrpPubRequest(keypath=keypath, display=display))
+        return self._xrp_msg_query(request, expected_response="pub").pub.pub
+
+    def xrp_sign_payment(self, payment: xrp.XrpSignPaymentRequest) -> xrp.XrpSignPaymentResponse:
+        """Sign an XRP Payment transaction."""
+        request = xrp.XrpRequest(sign_payment=payment)
+        return self._xrp_msg_query(request, expected_response="sign_payment").sign_payment
+
+    def _tron_msg_query(
+        self, tron_request: tron.TronRequest, expected_response: Optional[str] = None
+    ) -> tron.TronResponse:
+        """Send a Tron request and validate the nested response type."""
+        request = hww.Request()
+        request.tron.CopyFrom(tron_request)
+        response = self._msg_query(request, expected_response="tron").tron
+        if expected_response is not None and response.WhichOneof("response") != expected_response:
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    response.WhichOneof("response"), expected_response
+                )
+            )
+        return response
+
+    def tron_address(self, keypath: Sequence[int], display: bool = True) -> str:
+        """Return the Tron address at a BIP44 keypath."""
+        request = tron.TronRequest(pub=tron.TronPubRequest(keypath=keypath, display=display))
+        return self._tron_msg_query(request, expected_response="pub").pub.pub
+
+    def tron_sign_transaction(
+        self, network: "tron.TronNetwork.V", keypath: Sequence[int], raw_data: bytes
+    ) -> tron.TronSignTransactionResponse:
+        """Sign canonical protobuf-encoded protocol.Transaction.raw data."""
+        request = tron.TronRequest(
+            sign_transaction=tron.TronSignTransactionRequest(
+                network=network, keypath=keypath, raw_data=raw_data
+            )
+        )
+        return self._tron_msg_query(request, expected_response="sign_transaction").sign_transaction
+
+    def _zcash_msg_query(
+        self, zcash_request: zcash.ZcashRequest, expected_response: Optional[str] = None
+    ) -> zcash.ZcashResponse:
+        """Send a Zcash request and validate the nested response type."""
+        request = hww.Request()
+        request.zcash.CopyFrom(zcash_request)
+        response = self._msg_query(request, expected_response="zcash").zcash
+        if expected_response is not None and response.WhichOneof("response") != expected_response:
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    response.WhichOneof("response"), expected_response
+                )
+            )
+        return response
+
+    def zcash_address(
+        self,
+        network: "zcash.ZcashNetwork.V",
+        keypath: Sequence[int],
+        display: bool = True,
+    ) -> str:
+        """Return a transparent Zcash P2PKH address at a BIP44 keypath."""
+        request = zcash.ZcashRequest(
+            pub=zcash.ZcashPubRequest(network=network, keypath=keypath, display=display)
+        )
+        return self._zcash_msg_query(request, expected_response="pub").pub.pub
+
+    def zcash_sign_transaction(
+        self, transaction: zcash.ZcashSignTransactionRequest
+    ) -> zcash.ZcashSignTransactionResponse:
+        """Sign a transparent-only Zcash v5 transaction."""
+        request = zcash.ZcashRequest(sign_transaction=transaction)
+        return self._zcash_msg_query(request, expected_response="sign_transaction").sign_transaction
+
     def _bluetooth_msg_query(
         self, bluetooth_request: bluetooth.BluetoothRequest, expected_response: Optional[str] = None
     ) -> bluetooth.BluetoothResponse:
@@ -1361,6 +1494,8 @@ class BitBox02(BitBoxCommonAPI):
                 )
             )
         return bluetooth_response
+
+    # pylint: enable=no-member
 
     def bluetooth_upgrade(self, firmware: bytes) -> None:
         """

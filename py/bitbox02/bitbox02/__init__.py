@@ -29,7 +29,11 @@ from .bitbox02 import (
     cardano,
     common,
     eth,
+    solana,
     system,
+    tron,
+    xrp,
+    zcash,
     Bootloader,
     BootloaderError,
 )

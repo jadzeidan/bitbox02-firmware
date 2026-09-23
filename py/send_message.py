@@ -95,6 +95,374 @@ BITBOXSYNC_SERVER_ORIGIN = "https://sync.example.com"
 BITBOXSYNC_MAX_ACCEPTED = 5
 
 
+def parse_keypath(value: str) -> List[int]:
+    """Parse a BIP32 keypath such as m/44'/144'/0'/0/0."""
+    components = value.strip().split("/")
+    if components and components[0].lower() == "m":
+        components = components[1:]
+    if not components or any(not component for component in components):
+        raise argparse.ArgumentTypeError("keypath must contain at least one component")
+
+    result = []
+    for component in components:
+        hardened = component[-1:] in ("'", "h", "H")
+        number = component[:-1] if hardened else component
+        try:
+            index = int(number, 10)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"invalid keypath component: {component}") from exc
+        if index < 0 or index >= HARDENED:
+            raise argparse.ArgumentTypeError(f"keypath component out of range: {component}")
+        result.append(index + (HARDENED if hardened else 0))
+    return result
+
+
+def parse_hex(value: str) -> bytes:
+    """Parse an optionally 0x-prefixed hexadecimal byte string."""
+    value = value.strip()
+    if value.startswith(("0x", "0X")):
+        value = value[2:]
+    try:
+        return bytes.fromhex(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected an even-length hexadecimal byte string") from exc
+
+
+def parse_int(value: Union[str, int]) -> int:
+    """Parse a decimal integer or a string with a Python-style base prefix."""
+    if isinstance(value, int):
+        return value
+    return int(value, 0)
+
+
+def _run_cli_command(
+    device: bitbox02.BitBox02,
+    debug: bool,
+    command: Optional[Callable[[bitbox02.BitBox02], None]],
+) -> int:
+    if command is None:
+        return SendMessage(device, debug).run()
+    if debug:
+        device.debug = True
+    try:
+        command(device)
+    except UserAbortException:
+        eprint("Aborted by user")
+        return 1
+    finally:
+        device.close()
+    return 0
+
+
+# Protobuf fields and enum constants are generated dynamically.
+# pylint: disable=no-member
+def _command_solana_address(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    print(device.solana_address(args.keypath, display=args.display))
+
+
+def _command_solana_sign(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    network = {
+        "mainnet": bitbox02.solana.SOLANA_MAINNET,
+        "testnet": bitbox02.solana.SOLANA_TESTNET,
+        "devnet": bitbox02.solana.SOLANA_DEVNET,
+    }[args.network]
+    response = device.solana_sign_transaction(network, args.keypath, args.message_hex)
+    print(f"public_key: {response.public_key.hex()}")
+    print(f"signature: {response.signature.hex()}")
+
+
+def _command_xrp_address(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    print(device.xrp_address(args.keypath, display=args.display))
+
+
+def _command_xrp_sign(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    network = {
+        "mainnet": bitbox02.xrp.XRP_MAINNET,
+        "testnet": bitbox02.xrp.XRP_TESTNET,
+    }[args.network]
+    memo = args.memo.encode("utf-8") if args.memo is not None else args.memo_hex or b""
+    request = bitbox02.xrp.XrpSignPaymentRequest(
+        network=network,
+        keypath=args.keypath,
+        destination=args.destination,
+        amount=args.amount,
+        fee=args.fee,
+        sequence=args.sequence,
+        memo=memo,
+    )
+    if args.destination_tag is not None:
+        request.destination_tag = args.destination_tag
+    if args.last_ledger_sequence is not None:
+        request.last_ledger_sequence = args.last_ledger_sequence
+    response = device.xrp_sign_payment(request)
+    print(f"signature: {response.signature.hex()}")
+    print(f"serialized_transaction: {response.serialized_transaction.hex()}")
+
+
+def _command_tron_address(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    print(device.tron_address(args.keypath, display=args.display))
+
+
+def _command_tron_sign(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    network = {
+        "mainnet": bitbox02.tron.TRON_MAINNET,
+        "testnet": bitbox02.tron.TRON_TESTNET,
+    }[args.network]
+    response = device.tron_sign_transaction(network, args.keypath, args.raw_data_hex)
+    print(f"signature: {response.signature.hex()}")
+
+
+def _load_zcash_transaction(
+    filename: str, network: "bitbox02.zcash.ZcashNetwork.V"
+) -> "bitbox02.zcash.ZcashSignTransactionRequest":
+    if filename == "-":
+        document = json.load(sys.stdin)
+    else:
+        with Path(filename).open("r", encoding="utf-8") as file:
+            document = json.load(file)
+    try:
+        inputs = [
+            bitbox02.zcash.ZcashSignTransactionRequest.Input(
+                keypath=parse_keypath(item["keypath"]),
+                prev_out_hash=parse_hex(item["prev_out_hash"]),
+                prev_out_index=parse_int(item["prev_out_index"]),
+                value=parse_int(item["value"]),
+                script_pubkey=parse_hex(item["script_pubkey"]),
+                sequence=parse_int(item["sequence"]),
+            )
+            for item in document["inputs"]
+        ]
+        outputs = [
+            bitbox02.zcash.ZcashSignTransactionRequest.Output(
+                value=parse_int(item["value"]),
+                script_pubkey=parse_hex(item["script_pubkey"]),
+                keypath=parse_keypath(item["keypath"]) if item.get("keypath") else [],
+            )
+            for item in document["outputs"]
+        ]
+        return bitbox02.zcash.ZcashSignTransactionRequest(
+            network=network,
+            inputs=inputs,
+            outputs=outputs,
+            lock_time=parse_int(document.get("lock_time", 0)),
+            expiry_height=parse_int(document["expiry_height"]),
+            consensus_branch_id=parse_int(document["consensus_branch_id"]),
+        )
+    except (KeyError, TypeError, ValueError, argparse.ArgumentTypeError) as exc:
+        raise ValueError(f"invalid Zcash transaction JSON: {exc}") from exc
+
+
+def _command_zcash_address(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    network = {
+        "mainnet": bitbox02.zcash.ZCASH_MAINNET,
+        "testnet": bitbox02.zcash.ZCASH_TESTNET,
+    }[args.network]
+    print(device.zcash_address(network, args.keypath, display=args.display))
+
+
+def _command_zcash_sign(device: bitbox02.BitBox02, args: argparse.Namespace) -> None:
+    network = {
+        "mainnet": bitbox02.zcash.ZCASH_MAINNET,
+        "testnet": bitbox02.zcash.ZCASH_TESTNET,
+    }[args.network]
+    response = device.zcash_sign_transaction(_load_zcash_transaction(args.transaction, network))
+    for index, signature in enumerate(response.signatures):
+        print(f"signature[{index}]: {signature.hex()}")
+    print(f"serialized_transaction: {response.serialized_transaction.hex()}")
+
+
+def _add_altcoin_commands(parser: argparse.ArgumentParser) -> None:
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    solana_address = subparsers.add_parser("solana-address", help="derive a Solana address")
+    solana_address.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/501'/0'")
+    )
+    solana_address.add_argument("--display", action="store_true", help="confirm on the device")
+    solana_address.set_defaults(command_handler=_command_solana_address)
+
+    solana_sign = subparsers.add_parser("solana-sign", help="sign a serialized Solana message")
+    solana_sign.add_argument(
+        "--network", choices=("mainnet", "testnet", "devnet"), default="mainnet"
+    )
+    solana_sign.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/501'/0'")
+    )
+    solana_sign.add_argument("--message-hex", type=parse_hex, required=True)
+    solana_sign.set_defaults(command_handler=_command_solana_sign)
+
+    xrp_address = subparsers.add_parser("xrp-address", help="derive an XRP classic address")
+    xrp_address.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/144'/0'/0/0")
+    )
+    xrp_address.add_argument("--display", action="store_true", help="confirm on the device")
+    xrp_address.set_defaults(command_handler=_command_xrp_address)
+
+    xrp_sign = subparsers.add_parser("xrp-sign", help="sign an XRP Payment")
+    xrp_sign.add_argument("--network", choices=("mainnet", "testnet"), default="mainnet")
+    xrp_sign.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/144'/0'/0/0")
+    )
+    xrp_sign.add_argument("--destination", required=True)
+    xrp_sign.add_argument("--amount", type=parse_int, required=True, help="amount in drops")
+    xrp_sign.add_argument("--fee", type=parse_int, required=True, help="fee in drops")
+    xrp_sign.add_argument("--sequence", type=parse_int, required=True)
+    xrp_sign.add_argument("--destination-tag", type=parse_int)
+    xrp_sign.add_argument("--last-ledger-sequence", type=parse_int)
+    memo = xrp_sign.add_mutually_exclusive_group()
+    memo.add_argument("--memo", help="UTF-8 memo")
+    memo.add_argument("--memo-hex", type=parse_hex, help="raw memo bytes as hex")
+    xrp_sign.set_defaults(command_handler=_command_xrp_sign)
+
+    tron_address = subparsers.add_parser("tron-address", help="derive a Tron address")
+    tron_address.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/195'/0'/0/0")
+    )
+    tron_address.add_argument("--display", action="store_true", help="confirm on the device")
+    tron_address.set_defaults(command_handler=_command_tron_address)
+
+    tron_sign = subparsers.add_parser("tron-sign", help="sign serialized Tron raw_data")
+    tron_sign.add_argument("--network", choices=("mainnet", "testnet"), default="mainnet")
+    tron_sign.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/195'/0'/0/0")
+    )
+    tron_sign.add_argument("--raw-data-hex", type=parse_hex, required=True)
+    tron_sign.set_defaults(command_handler=_command_tron_sign)
+
+    zcash_address = subparsers.add_parser(
+        "zcash-address", help="derive a transparent Zcash address"
+    )
+    zcash_address.add_argument("--network", choices=("mainnet", "testnet"), default="mainnet")
+    zcash_address.add_argument(
+        "--keypath", type=parse_keypath, default=parse_keypath("m/44'/133'/0'/0/0")
+    )
+    zcash_address.add_argument("--display", action="store_true", help="confirm on the device")
+    zcash_address.set_defaults(command_handler=_command_zcash_address)
+
+    zcash_sign = subparsers.add_parser("zcash-sign", help="sign a transparent Zcash v5 transaction")
+    zcash_sign.add_argument("--network", choices=("mainnet", "testnet"), default="mainnet")
+    zcash_sign.add_argument(
+        "--transaction", required=True, metavar="JSON", help="JSON file, or - for stdin"
+    )
+    zcash_sign.set_defaults(command_handler=_command_zcash_sign)
+
+
+# pylint: enable=no-member
+
+
+def _solana_demo_sol_message(signer: bytes) -> bytes:
+    if len(signer) != 32:
+        raise ValueError("invalid Solana signer address")
+    recipient = bytes([2]) * 32
+    system_program = bytes(32)
+    recent_blockhash = bytes([3]) * 32
+    message = bytearray([1, 0, 1, 3])
+    message.extend(signer)
+    message.extend(recipient)
+    message.extend(system_program)
+    message.extend(recent_blockhash)
+    message.extend([1, 2, 2, 0, 1, 12])
+    message.extend((2).to_bytes(4, "little"))  # SystemProgram::Transfer.
+    message.extend((1_000_000).to_bytes(8, "little"))  # 0.001 SOL.
+    return bytes(message)
+
+
+def _solana_demo_spl_message(signer: bytes) -> bytes:
+    if len(signer) != 32:
+        raise ValueError("invalid Solana signer address")
+    source = bytes([2]) * 32
+    destination = bytes([3]) * 32
+    mint = bytes([4]) * 32
+    token_program = base58.b58decode("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+    recent_blockhash = bytes([5]) * 32
+    message = bytearray([0x80, 1, 0, 2, 5])
+    for account in (signer, source, destination, mint, token_program):
+        message.extend(account)
+    message.extend(recent_blockhash)
+    message.extend([1, 4, 4, 1, 3, 2, 0, 10, 12])
+    message.extend((1_000_000).to_bytes(8, "little"))  # 1 token at 6 decimals.
+    message.extend([6, 0])  # Token decimals and no address-table lookups.
+    return bytes(message)
+
+
+def _protobuf_varint(value: int) -> bytes:
+    result = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        result.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(result)
+
+
+def _protobuf_field_varint(field: int, value: int) -> bytes:
+    return _protobuf_varint(field << 3) + _protobuf_varint(value)
+
+
+def _protobuf_field_bytes(field: int, value: bytes) -> bytes:
+    return _protobuf_varint((field << 3) | 2) + _protobuf_varint(len(value)) + value
+
+
+def _tron_raw_data(contract_type: int, type_url: bytes, value: bytes, fee_limit: int = 0) -> bytes:
+    parameter = _protobuf_field_bytes(1, type_url) + _protobuf_field_bytes(2, value)
+    contract = _protobuf_field_varint(1, contract_type) + _protobuf_field_bytes(2, parameter)
+    raw_data = (
+        _protobuf_field_bytes(1, b"\x00\x01")
+        + _protobuf_field_bytes(4, bytes(8))
+        + _protobuf_field_varint(8, 2_000)
+        + _protobuf_field_bytes(11, contract)
+        + _protobuf_field_varint(14, 1_000)
+    )
+    if fee_limit:
+        raw_data += _protobuf_field_varint(18, fee_limit)
+    return raw_data
+
+
+def _tron_demo_trx_raw_data(owner: bytes) -> bytes:
+    if len(owner) != 21 or owner[0] != 0x41:
+        raise ValueError("invalid Tron owner address")
+    destination = b"\x41" + bytes([0x22]) * 20
+    transfer = (
+        _protobuf_field_bytes(1, owner)
+        + _protobuf_field_bytes(2, destination)
+        + _protobuf_field_varint(3, 1_000_000)  # 1 TRX.
+    )
+    return _tron_raw_data(
+        1,
+        b"type.googleapis.com/protocol.TransferContract",
+        transfer,
+    )
+
+
+def _tron_demo_trc20_raw_data(owner: bytes) -> bytes:
+    if len(owner) != 21 or owner[0] != 0x41:
+        raise ValueError("invalid Tron owner address")
+    contract = b"\x41" + bytes([0x33]) * 20
+    destination = bytes([0x22]) * 20
+    call_data = bytearray(68)
+    call_data[:4] = bytes.fromhex("a9059cbb")  # transfer(address,uint256).
+    call_data[16:36] = destination
+    call_data[60:] = (1_000_000).to_bytes(8, "big")
+    trigger = (
+        _protobuf_field_bytes(1, owner)
+        + _protobuf_field_bytes(2, contract)
+        + _protobuf_field_bytes(4, bytes(call_data))
+    )
+    return _tron_raw_data(
+        31,
+        b"type.googleapis.com/protocol.TriggerSmartContract",
+        trigger,
+        fee_limit=10_000_000,
+    )
+
+
+def _zcash_p2pkh_script(address: str) -> bytes:
+    decoded = base58.b58decode_check(address)
+    if len(decoded) != 22 or decoded[:2] != b"\x1c\xb8":
+        raise ValueError("invalid Zcash mainnet transparent address")
+    return b"\x76\xa9\x14" + decoded[2:] + b"\x88\xac"
+
+
 def _btc_demo_inputs_outputs(
     device: bitbox02.BitBox02,
     bip44_account: int,
@@ -1371,6 +1739,159 @@ class SendMessage:
         )
         print("Signature: 0x{}".format(binascii.hexlify(sig).decode("utf-8")))
 
+    @staticmethod
+    def _run_altcoin_menu(
+        choices: Sequence[Tuple[str, Callable[[], None]]],
+    ) -> None:
+        choice = ask_user(choices)
+        if callable(choice):
+            try:
+                choice()
+            except UserAbortException:
+                eprint("Aborted by user")
+            except (argparse.ArgumentTypeError, OSError, ValueError) as exc:
+                eprint(f"Invalid input: {exc}")
+
+    def _solana(self) -> None:
+        # pylint: disable=no-member
+        keypath = parse_keypath("m/44'/501'/0'")
+
+        def address() -> None:
+            _command_solana_address(
+                self._device,
+                argparse.Namespace(keypath=keypath, display=True),
+            )
+
+        def sign(build_message: Callable[[bytes], bytes]) -> None:
+            signer_address = self._device.solana_address(keypath, display=False)
+            _command_solana_sign(
+                self._device,
+                argparse.Namespace(
+                    network="mainnet",
+                    keypath=keypath,
+                    message_hex=build_message(base58.b58decode(signer_address)),
+                ),
+            )
+
+        self._run_altcoin_menu(
+            (
+                ("Retrieve address", address),
+                ("Sign demo SOL transfer", lambda: sign(_solana_demo_sol_message)),
+                ("Sign demo SPL transfer", lambda: sign(_solana_demo_spl_message)),
+            )
+        )
+
+    def _xrp(self) -> None:
+        keypath = parse_keypath("m/44'/144'/0'/0/0")
+
+        def address() -> None:
+            _command_xrp_address(
+                self._device,
+                argparse.Namespace(keypath=keypath, display=True),
+            )
+
+        def sign() -> None:
+            _command_xrp_sign(
+                self._device,
+                argparse.Namespace(
+                    network="mainnet",
+                    keypath=keypath,
+                    destination="r9cZA1mLK5R5Am25ArfXFmqgNwjZgnfk59",
+                    amount=1_000_000,
+                    fee=12,
+                    sequence=1,
+                    destination_tag=42,
+                    last_ledger_sequence=100,
+                    memo="BitBox demo",
+                    memo_hex=None,
+                ),
+            )
+
+        self._run_altcoin_menu(
+            (
+                ("Retrieve address", address),
+                ("Sign demo payment", sign),
+            )
+        )
+
+    def _tron(self) -> None:
+        keypath = parse_keypath("m/44'/195'/0'/0/0")
+
+        def address() -> None:
+            _command_tron_address(
+                self._device,
+                argparse.Namespace(keypath=keypath, display=True),
+            )
+
+        def sign(build_raw_data: Callable[[bytes], bytes]) -> None:
+            owner_address = self._device.tron_address(keypath, display=False)
+            _command_tron_sign(
+                self._device,
+                argparse.Namespace(
+                    network="mainnet",
+                    keypath=keypath,
+                    raw_data_hex=build_raw_data(base58.b58decode_check(owner_address)),
+                ),
+            )
+
+        self._run_altcoin_menu(
+            (
+                ("Retrieve address", address),
+                ("Sign demo TRX transfer", lambda: sign(_tron_demo_trx_raw_data)),
+                ("Sign demo TRC-20 transfer", lambda: sign(_tron_demo_trc20_raw_data)),
+            )
+        )
+
+    def _zcash(self) -> None:
+        # pylint: disable=no-member
+        network = bitbox02.zcash.ZCASH_MAINNET
+        keypath = parse_keypath("m/44'/133'/0'/0/0")
+
+        def address() -> None:
+            _command_zcash_address(
+                self._device,
+                argparse.Namespace(network="mainnet", keypath=keypath, display=True),
+            )
+
+        def sign() -> None:
+            source_address = self._device.zcash_address(network, keypath, display=False)
+            source_script = _zcash_p2pkh_script(source_address)
+            destination_script = b"\x76\xa9\x14" + bytes([0x22]) * 20 + b"\x88\xac"
+            response = self._device.zcash_sign_transaction(
+                bitbox02.zcash.ZcashSignTransactionRequest(
+                    network=network,
+                    inputs=[
+                        bitbox02.zcash.ZcashSignTransactionRequest.Input(
+                            keypath=keypath,
+                            prev_out_hash=bytes(range(32)),
+                            prev_out_index=0,
+                            value=100_000,
+                            script_pubkey=source_script,
+                            sequence=0xFFFF_FFFE,
+                        )
+                    ],
+                    outputs=[
+                        bitbox02.zcash.ZcashSignTransactionRequest.Output(
+                            value=99_000,
+                            script_pubkey=destination_script,
+                        )
+                    ],
+                    lock_time=0,
+                    expiry_height=1_234_567,
+                    consensus_branch_id=0xC8E7_1055,
+                ),
+            )
+            for index, signature in enumerate(response.signatures):
+                print(f"signature[{index}]: {signature.hex()}")
+            print(f"serialized_transaction: {response.serialized_transaction.hex()}")
+
+        self._run_altcoin_menu(
+            (
+                ("Retrieve transparent address", address),
+                ("Sign demo transparent v5 transaction", sign),
+            )
+        )
+
     def _cardano(self) -> None:
         def xpubs() -> None:
             xpubs = self._device.cardano_xpubs(
@@ -1844,6 +2365,10 @@ class SendMessage:
                 self._sign_eth_typed_message_large_data,
             ),
             ("Cardano", self._cardano),
+            ("Solana", self._solana),
+            ("XRP", self._xrp),
+            ("Tron", self._tron),
+            ("Zcash (transparent)", self._zcash),
             ("Show Electrum wallet encryption key", self._get_electrum_encryption_key),
             ("BIP85 - BIP39", self._bip85_bip39),
             ("BIP85 - LN", self._bip85_ln),
@@ -2023,7 +2548,11 @@ class U2FApp:
         return 0
 
 
-def connect_to_simulator_bitbox(debug: bool, port: int) -> int:
+def connect_to_simulator_bitbox(
+    debug: bool,
+    port: int,
+    command: Optional[Callable[[bitbox02.BitBox02], None]] = None,
+) -> int:
     """
     Connects and runs the main menu on host computer,
     simulating a BitBox02 connected over USB.
@@ -2071,10 +2600,14 @@ def connect_to_simulator_bitbox(debug: bool, port: int) -> int:
     except FirmwareVersionOutdatedException as exc:
         print("WARNING: ", exc)
 
-    return SendMessage(bitbox_connection, debug).run()
+    return _run_cli_command(bitbox_connection, debug, command)
 
 
-def connect_to_usb_bitbox(debug: bool, use_cache: bool) -> int:
+def connect_to_usb_bitbox(
+    debug: bool,
+    use_cache: bool,
+    command: Optional[Callable[[bitbox02.BitBox02], None]] = None,
+) -> int:
     """
     Connects and runs the main menu on a BitBox02 connected
     over USB.
@@ -2098,6 +2631,10 @@ def connect_to_usb_bitbox(debug: bool, use_cache: bool) -> int:
             )
             return 1
         bootloader_connection = Bootloader(u2fhid.U2FHid(hid_device), bootloader)
+        if command is not None:
+            print("Altcoin commands require a device running firmware, not the bootloader.")
+            bootloader_connection.close()
+            return 1
         boot_app = SendMessageBootloader(bootloader_connection)
         return boot_app.run()
 
@@ -2165,7 +2702,7 @@ def connect_to_usb_bitbox(debug: bool, use_cache: bool) -> int:
     if debug:
         print("Device Info:")
         pprint.pprint(bitbox)
-    return SendMessage(bitbox_connection, debug).run()
+    return _run_cli_command(bitbox_connection, debug, command)
 
 
 def main() -> int:
@@ -2187,9 +2724,17 @@ def main() -> int:
     parser.add_argument(
         "--no-cache", action="store_true", help="Don't use cached or store noise keys"
     )
+    parser.set_defaults(command_handler=None)
+    _add_altcoin_commands(parser)
     args = parser.parse_args()
 
+    command = (
+        None if args.command_handler is None else lambda device: args.command_handler(device, args)
+    )
+
     if args.u2f:
+        if command is not None:
+            parser.error("--u2f cannot be combined with an altcoin command")
         try:
             u2fbitbox = u2f.bitbox02.get_bitbox02_u2f_device()
         except devices.TooManyFoundException:
@@ -2205,9 +2750,9 @@ def main() -> int:
         return 1
 
     if args.simulator:
-        return connect_to_simulator_bitbox(args.debug, args.simulator_port)
+        return connect_to_simulator_bitbox(args.debug, args.simulator_port, command)
 
-    return connect_to_usb_bitbox(args.debug, not args.no_cache)
+    return connect_to_usb_bitbox(args.debug, not args.no_cache, command)
 
 
 if __name__ == "__main__":

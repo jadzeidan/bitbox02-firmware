@@ -47,6 +47,10 @@ from .bitbox02 import (
     cardano,
     common,
     eth,
+    solana,
     system,
+    tron,
+    xrp,
+    zcash,
 )
 from .bootloader import Bootloader, BootloaderError

@@ -8,7 +8,7 @@ This directory contains scripts to talk to the BitBox device directly via the co
 These instructions require Python 3.10 or newer, pip, and venv (a lightweight "virtual
 environment"). Inside the virtual environment, `python` and `pip` refer to Python 3.
 
-All commands below assume you are in the `py/bitbox02` directory.
+All commands below assume you are in the `py/` directory.
 
 ### Requirements
 
@@ -66,6 +66,68 @@ What would you like to do?
 - (5) Retrieve multiple xpubs
 - (6) …
 ```
+
+### Altcoin command-line tests
+
+Solana, XRP, Tron, and transparent Zcash are available as entries in the interactive menu. Each
+entry includes ready-to-sign demo transfers using the first account, including SPL and TRC-20 token
+examples. These transactions contain dummy block references or outpoints and are intended only for
+testing, not broadcasting.
+
+Custom requests can be sent directly using the commands below. Global options such as `--simulator`
+and `--debug` must precede the command. Run `python ./send_message.py COMMAND --help` for all
+options.
+
+```bash
+python ./send_message.py solana-address --display
+python ./send_message.py solana-sign --network devnet --message-hex "$MESSAGE_HEX"
+
+python ./send_message.py xrp-address --display
+python ./send_message.py xrp-sign \
+    --destination r9cZA1mLK5R5Am25ArfXFmqgNwjZgnfk59 \
+    --amount 1000000 --fee 12 --sequence 1 --destination-tag 42
+
+python ./send_message.py tron-address --display
+python ./send_message.py tron-sign --network testnet --raw-data-hex "$RAW_DATA_HEX"
+
+python ./send_message.py zcash-address --display
+python ./send_message.py zcash-sign --transaction ./zcash-transaction.json
+```
+
+Keypaths use `m/...` notation and default to each coin's first BIP44 account/address. Solana's
+`--message-hex` is a serialized legacy or v0 message without signatures. Tron's
+`--raw-data-hex` is the canonical protobuf encoding of `protocol.Transaction.raw`.
+
+The Zcash JSON format is transparent-only. An output without a `keypath` is external; an output
+with a `keypath` is verified as change by the device. Byte fields are hexadecimal, while integer
+fields may be JSON numbers or strings such as `"0xc8e71055"`.
+
+```json
+{
+  "inputs": [
+    {
+      "keypath": "m/44'/133'/0'/0/0",
+      "prev_out_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "prev_out_index": 0,
+      "value": 100000,
+      "script_pubkey": "76a914000000000000000000000000000000000000000088ac",
+      "sequence": "0xfffffffe"
+    }
+  ],
+  "outputs": [
+    {
+      "value": 99000,
+      "script_pubkey": "76a914111111111111111111111111111111111111111188ac"
+    }
+  ],
+  "lock_time": 0,
+  "expiry_height": 3000000,
+  "consensus_branch_id": "0xc8e71055"
+}
+```
+
+The input script must match the key derived at its `keypath`; replace the placeholder hashes in
+the example with real transaction data before signing.
 
 When connecting the first time to an initialized but unpaired BitBox, the device
 will prompt to unlock and continue to compare and confirm the Noise pairing key.

@@ -58,7 +58,11 @@ setuptools.setup(
             "mnemonic_pb2.pyi",
             "perform_attestation_pb2.pyi",
             "random_number_pb2.pyi",
+            "solana_pb2.pyi",
             "system_pb2.pyi",
+            "tron_pb2.pyi",
+            "xrp_pb2.pyi",
+            "zcash_pb2.pyi",
         ],
     },
     install_requires=[
