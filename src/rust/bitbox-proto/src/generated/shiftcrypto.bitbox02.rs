@@ -2028,6 +2028,412 @@ pub mod reboot_request {
         }
     }
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SolanaPubRequest {
+    #[prost(uint32, repeated, tag = "1")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(bool, tag = "2")]
+    pub display: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SolanaSignTransactionRequest {
+    #[prost(enumeration = "SolanaNetwork", tag = "1")]
+    pub network: i32,
+    #[prost(uint32, repeated, tag = "2")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    /// The canonical serialized legacy or v0 message (without signatures).
+    #[prost(bytes = "vec", tag = "3")]
+    pub message: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SolanaSignTransactionResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub public_key: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SolanaRequest {
+    #[prost(oneof = "solana_request::Request", tags = "1, 2")]
+    pub request: ::core::option::Option<solana_request::Request>,
+}
+/// Nested message and enum types in `SolanaRequest`.
+pub mod solana_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag = "1")]
+        Pub(super::SolanaPubRequest),
+        #[prost(message, tag = "2")]
+        SignTransaction(super::SolanaSignTransactionRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SolanaResponse {
+    #[prost(oneof = "solana_response::Response", tags = "1, 2")]
+    pub response: ::core::option::Option<solana_response::Response>,
+}
+/// Nested message and enum types in `SolanaResponse`.
+pub mod solana_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Pub(super::PubResponse),
+        #[prost(message, tag = "2")]
+        SignTransaction(super::SolanaSignTransactionResponse),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SolanaNetwork {
+    SolanaMainnet = 0,
+    SolanaTestnet = 1,
+    SolanaDevnet = 2,
+}
+impl SolanaNetwork {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SolanaNetwork::SolanaMainnet => "SOLANA_MAINNET",
+            SolanaNetwork::SolanaTestnet => "SOLANA_TESTNET",
+            SolanaNetwork::SolanaDevnet => "SOLANA_DEVNET",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SOLANA_MAINNET" => Some(Self::SolanaMainnet),
+            "SOLANA_TESTNET" => Some(Self::SolanaTestnet),
+            "SOLANA_DEVNET" => Some(Self::SolanaDevnet),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TronPubRequest {
+    #[prost(uint32, repeated, tag = "1")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(bool, tag = "2")]
+    pub display: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TronSignTransactionRequest {
+    #[prost(enumeration = "TronNetwork", tag = "1")]
+    pub network: i32,
+    #[prost(uint32, repeated, tag = "2")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    /// Canonical protobuf encoding of protocol.Transaction.raw.
+    #[prost(bytes = "vec", tag = "3")]
+    pub raw_data: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TronSignTransactionResponse {
+    /// Compact r || s || recovery-id signature.
+    #[prost(bytes = "vec", tag = "1")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TronRequest {
+    #[prost(oneof = "tron_request::Request", tags = "1, 2")]
+    pub request: ::core::option::Option<tron_request::Request>,
+}
+/// Nested message and enum types in `TronRequest`.
+pub mod tron_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag = "1")]
+        Pub(super::TronPubRequest),
+        #[prost(message, tag = "2")]
+        SignTransaction(super::TronSignTransactionRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TronResponse {
+    #[prost(oneof = "tron_response::Response", tags = "1, 2")]
+    pub response: ::core::option::Option<tron_response::Response>,
+}
+/// Nested message and enum types in `TronResponse`.
+pub mod tron_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Pub(super::PubResponse),
+        #[prost(message, tag = "2")]
+        SignTransaction(super::TronSignTransactionResponse),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum TronNetwork {
+    TronMainnet = 0,
+    TronTestnet = 1,
+}
+impl TronNetwork {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            TronNetwork::TronMainnet => "TRON_MAINNET",
+            TronNetwork::TronTestnet => "TRON_TESTNET",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TRON_MAINNET" => Some(Self::TronMainnet),
+            "TRON_TESTNET" => Some(Self::TronTestnet),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XrpPubRequest {
+    #[prost(uint32, repeated, tag = "1")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(bool, tag = "2")]
+    pub display: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XrpSignPaymentRequest {
+    #[prost(enumeration = "XrpNetwork", tag = "1")]
+    pub network: i32,
+    #[prost(uint32, repeated, tag = "2")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(string, tag = "3")]
+    pub destination: ::prost::alloc::string::String,
+    /// drops
+    #[prost(uint64, tag = "4")]
+    pub amount: u64,
+    /// drops
+    #[prost(uint64, tag = "5")]
+    pub fee: u64,
+    #[prost(uint32, tag = "6")]
+    pub sequence: u32,
+    #[prost(uint32, optional, tag = "7")]
+    pub destination_tag: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "8")]
+    pub last_ledger_sequence: ::core::option::Option<u32>,
+    #[prost(bytes = "vec", tag = "9")]
+    pub memo: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XrpSignPaymentResponse {
+    /// DER-encoded ECDSA signature.
+    #[prost(bytes = "vec", tag = "1")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+    /// Canonical serialized transaction including TxnSignature.
+    #[prost(bytes = "vec", tag = "2")]
+    pub serialized_transaction: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XrpRequest {
+    #[prost(oneof = "xrp_request::Request", tags = "1, 2")]
+    pub request: ::core::option::Option<xrp_request::Request>,
+}
+/// Nested message and enum types in `XrpRequest`.
+pub mod xrp_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag = "1")]
+        Pub(super::XrpPubRequest),
+        #[prost(message, tag = "2")]
+        SignPayment(super::XrpSignPaymentRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XrpResponse {
+    #[prost(oneof = "xrp_response::Response", tags = "1, 2")]
+    pub response: ::core::option::Option<xrp_response::Response>,
+}
+/// Nested message and enum types in `XrpResponse`.
+pub mod xrp_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Pub(super::PubResponse),
+        #[prost(message, tag = "2")]
+        SignPayment(super::XrpSignPaymentResponse),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum XrpNetwork {
+    XrpMainnet = 0,
+    XrpTestnet = 1,
+}
+impl XrpNetwork {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            XrpNetwork::XrpMainnet => "XRP_MAINNET",
+            XrpNetwork::XrpTestnet => "XRP_TESTNET",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "XRP_MAINNET" => Some(Self::XrpMainnet),
+            "XRP_TESTNET" => Some(Self::XrpTestnet),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ZcashPubRequest {
+    #[prost(enumeration = "ZcashNetwork", tag = "1")]
+    pub network: i32,
+    #[prost(uint32, repeated, tag = "2")]
+    pub keypath: ::prost::alloc::vec::Vec<u32>,
+    #[prost(bool, tag = "3")]
+    pub display: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ZcashSignTransactionRequest {
+    #[prost(enumeration = "ZcashNetwork", tag = "1")]
+    pub network: i32,
+    #[prost(message, repeated, tag = "2")]
+    pub inputs: ::prost::alloc::vec::Vec<zcash_sign_transaction_request::Input>,
+    #[prost(message, repeated, tag = "3")]
+    pub outputs: ::prost::alloc::vec::Vec<zcash_sign_transaction_request::Output>,
+    #[prost(uint32, tag = "4")]
+    pub lock_time: u32,
+    #[prost(uint32, tag = "5")]
+    pub expiry_height: u32,
+    /// ZIP-244 consensus branch ID, serialized little-endian in the transaction.
+    #[prost(uint32, tag = "6")]
+    pub consensus_branch_id: u32,
+}
+/// Nested message and enum types in `ZcashSignTransactionRequest`.
+pub mod zcash_sign_transaction_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Input {
+        #[prost(uint32, repeated, tag = "1")]
+        pub keypath: ::prost::alloc::vec::Vec<u32>,
+        /// 32-byte previous transaction hash in transaction wire order (little-endian txid).
+        #[prost(bytes = "vec", tag = "2")]
+        pub prev_out_hash: ::prost::alloc::vec::Vec<u8>,
+        #[prost(uint32, tag = "3")]
+        pub prev_out_index: u32,
+        #[prost(uint64, tag = "4")]
+        pub value: u64,
+        #[prost(bytes = "vec", tag = "5")]
+        pub script_pubkey: ::prost::alloc::vec::Vec<u8>,
+        #[prost(uint32, tag = "6")]
+        pub sequence: u32,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Output {
+        #[prost(uint64, tag = "1")]
+        pub value: u64,
+        #[prost(bytes = "vec", tag = "2")]
+        pub script_pubkey: ::prost::alloc::vec::Vec<u8>,
+        /// Set for change. The script must match the address derived at this path.
+        #[prost(uint32, repeated, tag = "3")]
+        pub keypath: ::prost::alloc::vec::Vec<u32>,
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ZcashSignTransactionResponse {
+    /// DER signatures, in input order. Each includes the SIGHASH_ALL byte suffix.
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub signatures: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    /// Serialized, signed v5 transaction.
+    #[prost(bytes = "vec", tag = "2")]
+    pub serialized_transaction: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ZcashRequest {
+    #[prost(oneof = "zcash_request::Request", tags = "1, 2")]
+    pub request: ::core::option::Option<zcash_request::Request>,
+}
+/// Nested message and enum types in `ZcashRequest`.
+pub mod zcash_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag = "1")]
+        Pub(super::ZcashPubRequest),
+        #[prost(message, tag = "2")]
+        SignTransaction(super::ZcashSignTransactionRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ZcashResponse {
+    #[prost(oneof = "zcash_response::Response", tags = "1, 2")]
+    pub response: ::core::option::Option<zcash_response::Response>,
+}
+/// Nested message and enum types in `ZcashResponse`.
+pub mod zcash_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Pub(super::PubResponse),
+        #[prost(message, tag = "2")]
+        SignTransaction(super::ZcashSignTransactionResponse),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ZcashNetwork {
+    ZcashMainnet = 0,
+    ZcashTestnet = 1,
+}
+impl ZcashNetwork {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ZcashNetwork::ZcashMainnet => "ZCASH_MAINNET",
+            ZcashNetwork::ZcashTestnet => "ZCASH_TESTNET",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ZCASH_MAINNET" => Some(Self::ZcashMainnet),
+            "ZCASH_TESTNET" => Some(Self::ZcashTestnet),
+            _ => None,
+        }
+    }
+}
 /// Deprecated, last used in v1.0.0
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2067,7 +2473,7 @@ pub struct Success {}
 pub struct Request {
     #[prost(
         oneof = "request::Request",
-        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31"
+        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35"
     )]
     pub request: ::core::option::Option<request::Request>,
 }
@@ -2136,6 +2542,14 @@ pub mod request {
         ChangePassword(super::ChangePasswordRequest),
         #[prost(message, tag = "31")]
         BitboxSync(super::BitBoxSyncRequest),
+        #[prost(message, tag = "32")]
+        Solana(super::SolanaRequest),
+        #[prost(message, tag = "33")]
+        Xrp(super::XrpRequest),
+        #[prost(message, tag = "34")]
+        Tron(super::TronRequest),
+        #[prost(message, tag = "35")]
+        Zcash(super::ZcashRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2143,7 +2557,7 @@ pub mod request {
 pub struct Response {
     #[prost(
         oneof = "response::Response",
-        tags = "1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18"
+        tags = "1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22"
     )]
     pub response: ::core::option::Option<response::Response>,
 }
@@ -2187,5 +2601,13 @@ pub mod response {
         Bluetooth(super::BluetoothResponse),
         #[prost(message, tag = "18")]
         BitboxSync(super::BitBoxSyncResponse),
+        #[prost(message, tag = "19")]
+        Solana(super::SolanaResponse),
+        #[prost(message, tag = "20")]
+        Xrp(super::XrpResponse),
+        #[prost(message, tag = "21")]
+        Tron(super::TronResponse),
+        #[prost(message, tag = "22")]
+        Zcash(super::ZcashResponse),
     }
 }

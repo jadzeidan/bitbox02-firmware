@@ -105,6 +105,76 @@ pub async fn sign(
     Ok(sign_with_expanded_secret_key(&secret_key, msg))
 }
 
+/// Derive an Ed25519 private key according to SLIP-0010. Unlike the Cardano derivation above,
+/// SLIP-0010 only permits hardened child keys.
+fn slip10_derive_private_key(
+    seed: &[u8],
+    keypath: &[u32],
+) -> Result<zeroize::Zeroizing<Vec<u8>>, ()> {
+    if keypath.iter().any(|index| index & 0x8000_0000 == 0) {
+        return Err(());
+    }
+
+    let root = zeroize::Zeroizing::new(hmac_sha512(b"ed25519 seed", seed).to_vec());
+    let mut private_key = zeroize::Zeroizing::new(root[..32].to_vec());
+    let mut chain_code = zeroize::Zeroizing::new(root[32..].to_vec());
+
+    for index in keypath {
+        let mut data = zeroize::Zeroizing::new(Vec::with_capacity(37));
+        data.push(0);
+        data.extend_from_slice(&private_key);
+        data.extend_from_slice(&index.to_be_bytes());
+        let child = zeroize::Zeroizing::new(hmac_sha512(&chain_code, &data).to_vec());
+        private_key.copy_from_slice(&child[..32]);
+        chain_code.copy_from_slice(&child[32..]);
+    }
+    Ok(private_key)
+}
+
+async fn slip10_get_private_key(
+    hal: &mut impl crate::hal::Hal,
+    keypath: &[u32],
+) -> Result<zeroize::Zeroizing<Vec<u8>>, ()> {
+    let seed = crate::keystore::copy_bip39_seed(hal).await?;
+    slip10_derive_private_key(&seed, keypath)
+}
+
+async fn slip10_get_pubkey(
+    hal: &mut impl crate::hal::Hal,
+    keypath: &[u32],
+) -> Result<VerifyingKey, ()> {
+    let private_key = slip10_get_private_key(hal, keypath).await?;
+    let seed: &[u8; 32] = private_key.as_slice().try_into().map_err(|_| ())?;
+    Ok(VerifyingKey::from(&expanded_secret_key_from_seed(seed)))
+}
+
+/// Return a SLIP-0010 Ed25519 public key, deriving it twice to mitigate computation faults.
+pub async fn slip10_get_pubkey_twice(
+    hal: &mut impl crate::hal::Hal,
+    keypath: &[u32],
+) -> Result<VerifyingKey, ()> {
+    let public_key = slip10_get_pubkey(hal, keypath).await?;
+    if public_key == slip10_get_pubkey(hal, keypath).await? {
+        Ok(public_key)
+    } else {
+        Err(())
+    }
+}
+
+/// Sign an arbitrary message using an Ed25519 key derived according to SLIP-0010.
+pub async fn slip10_sign(
+    hal: &mut impl crate::hal::Hal,
+    keypath: &[u32],
+    msg: &[u8],
+) -> Result<SignResult, ()> {
+    let private_key = slip10_get_private_key(hal, keypath).await?;
+    let seed: &[u8; 32] = private_key.as_slice().try_into().map_err(|_| ())?;
+    Ok(sign_with_expanded_secret_key(
+        &expanded_secret_key_from_seed(seed),
+        msg,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +356,22 @@ mod tests {
                 "6c9bc40e34e2a9b7885eec72c060ba769fe3a74c9b144bbf63f4d54ea666043134250eb27dd34228475d7c6b5432d73742f4b5a098f465ba101e90d100356801"
             )
         );
+    }
+
+    #[test]
+    fn test_slip10_derive_private_key() {
+        // SLIP-0010 test vector 1.
+        let seed = hex!("000102030405060708090a0b0c0d0e0f");
+        assert_eq!(
+            slip10_derive_private_key(&seed, &[]).unwrap().as_slice(),
+            &hex!("2b4be7f19ee27bbf30c667b642d5f4aa69fd169872f8fc3059c08ebae2eb19e7")
+        );
+        assert_eq!(
+            slip10_derive_private_key(&seed, &[HARDENED_OFFSET])
+                .unwrap()
+                .as_slice(),
+            &hex!("68e0fe46dfb67e368c75379acec591dad19df3cde26e63b93a8e704f1dade7a3")
+        );
+        assert!(slip10_derive_private_key(&seed, &[0]).is_err());
     }
 }

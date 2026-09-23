@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package shiftcrypto.bitbox02;
+
+import "common.proto";
+
+enum TronNetwork {
+  TRON_MAINNET = 0;
+  TRON_TESTNET = 1;
+}
+
+message TronPubRequest {
+  repeated uint32 keypath = 1;
+  bool display = 2;
+}
+
+message TronSignTransactionRequest {
+  TronNetwork network = 1;
+  repeated uint32 keypath = 2;
+  // Canonical protobuf encoding of protocol.Transaction.raw.
+  bytes raw_data = 3;
+}
+
+message TronSignTransactionResponse {
+  // Compact r || s || recovery-id signature.
+  bytes signature = 1;
+}
+
+message TronRequest {
+  oneof request {
+    TronPubRequest pub = 1;
+    TronSignTransactionRequest sign_transaction = 2;
+  }
+}
+
+message TronResponse {
+  oneof response {
+    PubResponse pub = 1;
+    TronSignTransactionResponse sign_transaction = 2;
+  }
+}

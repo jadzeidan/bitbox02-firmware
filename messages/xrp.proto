@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package shiftcrypto.bitbox02;
+
+import "common.proto";
+
+enum XrpNetwork {
+  XRP_MAINNET = 0;
+  XRP_TESTNET = 1;
+}
+
+message XrpPubRequest {
+  repeated uint32 keypath = 1;
+  bool display = 2;
+}
+
+message XrpSignPaymentRequest {
+  XrpNetwork network = 1;
+  repeated uint32 keypath = 2;
+  string destination = 3;
+  uint64 amount = 4; // drops
+  uint64 fee = 5; // drops
+  uint32 sequence = 6;
+  optional uint32 destination_tag = 7;
+  optional uint32 last_ledger_sequence = 8;
+  bytes memo = 9;
+}
+
+message XrpSignPaymentResponse {
+  // DER-encoded ECDSA signature.
+  bytes signature = 1;
+  // Canonical serialized transaction including TxnSignature.
+  bytes serialized_transaction = 2;
+}
+
+message XrpRequest {
+  oneof request {
+    XrpPubRequest pub = 1;
+    XrpSignPaymentRequest sign_payment = 2;
+  }
+}
+
+message XrpResponse {
+  oneof response {
+    PubResponse pub = 1;
+    XrpSignPaymentResponse sign_payment = 2;
+  }
+}

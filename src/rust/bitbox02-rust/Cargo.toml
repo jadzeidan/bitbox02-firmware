@@ -96,6 +96,11 @@ app-cardano = [
   "dep:crc"
 ]
 
+app-solana = []
+app-xrp = []
+app-tron = ["dep:sha3"]
+app-zcash = []
+
 # Temporarily disabled pending API changes.
 bitboxsync = []
 
@@ -115,6 +120,10 @@ simulator-graphical = [
   "app-litecoin",
   "app-ethereum",
   "app-cardano",
+  "app-solana",
+  "app-xrp",
+  "app-tron",
+  "app-zcash",
   "firmware",
 ]
 

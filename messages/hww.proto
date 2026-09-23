@@ -15,6 +15,10 @@ import "eth.proto";
 import "keystore.proto";
 import "mnemonic.proto";
 import "system.proto";
+import "solana.proto";
+import "tron.proto";
+import "xrp.proto";
+import "zcash.proto";
 
 import "perform_attestation.proto";
 
@@ -60,6 +64,10 @@ message Request {
         BluetoothRequest bluetooth = 29;
         ChangePasswordRequest change_password = 30;
         BitBoxSyncRequest bitbox_sync = 31;
+        SolanaRequest solana = 32;
+        XrpRequest xrp = 33;
+        TronRequest tron = 34;
+        ZcashRequest zcash = 35;
     }
 }
 
@@ -84,5 +92,9 @@ message Response {
         BIP85Response bip85 = 16;
         BluetoothResponse bluetooth = 17;
         BitBoxSyncResponse bitbox_sync = 18;
+        SolanaResponse solana = 19;
+        XrpResponse xrp = 20;
+        TronResponse tron = 21;
+        ZcashResponse zcash = 22;
     }
 }

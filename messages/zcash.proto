@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package shiftcrypto.bitbox02;
+
+import "common.proto";
+
+enum ZcashNetwork {
+  ZCASH_MAINNET = 0;
+  ZCASH_TESTNET = 1;
+}
+
+message ZcashPubRequest {
+  ZcashNetwork network = 1;
+  repeated uint32 keypath = 2;
+  bool display = 3;
+}
+
+message ZcashSignTransactionRequest {
+  message Input {
+    repeated uint32 keypath = 1;
+    // 32-byte previous transaction hash in transaction wire order (little-endian txid).
+    bytes prev_out_hash = 2;
+    uint32 prev_out_index = 3;
+    uint64 value = 4;
+    bytes script_pubkey = 5;
+    uint32 sequence = 6;
+  }
+
+  message Output {
+    uint64 value = 1;
+    bytes script_pubkey = 2;
+    // Set for change. The script must match the address derived at this path.
+    repeated uint32 keypath = 3;
+  }
+
+  ZcashNetwork network = 1;
+  repeated Input inputs = 2;
+  repeated Output outputs = 3;
+  uint32 lock_time = 4;
+  uint32 expiry_height = 5;
+  // ZIP-244 consensus branch ID, serialized little-endian in the transaction.
+  uint32 consensus_branch_id = 6;
+}
+
+message ZcashSignTransactionResponse {
+  // DER signatures, in input order. Each includes the SIGHASH_ALL byte suffix.
+  repeated bytes signatures = 1;
+  // Serialized, signed v5 transaction.
+  bytes serialized_transaction = 2;
+}
+
+message ZcashRequest {
+  oneof request {
+    ZcashPubRequest pub = 1;
+    ZcashSignTransactionRequest sign_transaction = 2;
+  }
+}
+
+message ZcashResponse {
+  oneof response {
+    PubResponse pub = 1;
+    ZcashSignTransactionResponse sign_transaction = 2;
+  }
+}

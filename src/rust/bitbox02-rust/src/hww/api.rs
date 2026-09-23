@@ -14,6 +14,22 @@ pub(crate) mod payment_request;
 
 #[cfg(feature = "app-cardano")]
 mod cardano;
+#[cfg(feature = "app-solana")]
+mod solana;
+#[cfg(feature = "app-tron")]
+mod tron;
+#[cfg(feature = "app-xrp")]
+mod xrp;
+#[cfg(feature = "app-zcash")]
+mod zcash;
+
+#[cfg(any(
+    feature = "app-solana",
+    feature = "app-xrp",
+    feature = "app-tron",
+    feature = "app-zcash"
+))]
+mod altcoin;
 
 mod backup;
 mod bip85;
@@ -144,6 +160,10 @@ fn can_call(hal: &mut impl crate::hal::Hal, request: &Request) -> bool {
         | Request::Eth(_)
         | Request::Reset(_)
         | Request::Cardano(_)
+        | Request::Solana(_)
+        | Request::Xrp(_)
+        | Request::Tron(_)
+        | Request::Zcash(_)
         | Request::Bip85(_)
         | Request::BitboxSync(_)
         | Request::ChangePassword(_) => {
@@ -201,6 +221,38 @@ async fn process_api(hal: &mut impl crate::hal::Hal, request: &Request) -> Resul
             .map(|r| Response::Cardano(pb::CardanoResponse { response: Some(r) })),
         #[cfg(not(feature = "app-cardano"))]
         Request::Cardano(_) => Err(Error::Disabled),
+        #[cfg(feature = "app-solana")]
+        Request::Solana(pb::SolanaRequest {
+            request: Some(request),
+        }) => solana::process_api(hal, request)
+            .await
+            .map(|r| Response::Solana(pb::SolanaResponse { response: Some(r) })),
+        #[cfg(not(feature = "app-solana"))]
+        Request::Solana(_) => Err(Error::Disabled),
+        #[cfg(feature = "app-xrp")]
+        Request::Xrp(pb::XrpRequest {
+            request: Some(request),
+        }) => xrp::process_api(hal, request)
+            .await
+            .map(|r| Response::Xrp(pb::XrpResponse { response: Some(r) })),
+        #[cfg(not(feature = "app-xrp"))]
+        Request::Xrp(_) => Err(Error::Disabled),
+        #[cfg(feature = "app-tron")]
+        Request::Tron(pb::TronRequest {
+            request: Some(request),
+        }) => tron::process_api(hal, request)
+            .await
+            .map(|r| Response::Tron(pb::TronResponse { response: Some(r) })),
+        #[cfg(not(feature = "app-tron"))]
+        Request::Tron(_) => Err(Error::Disabled),
+        #[cfg(feature = "app-zcash")]
+        Request::Zcash(pb::ZcashRequest {
+            request: Some(request),
+        }) => zcash::process_api(hal, request)
+            .await
+            .map(|r| Response::Zcash(pb::ZcashResponse { response: Some(r) })),
+        #[cfg(not(feature = "app-zcash"))]
+        Request::Zcash(_) => Err(Error::Disabled),
         Request::Bip85(request) => bip85::process(hal, request).await,
         #[cfg(feature = "bitboxsync")]
         Request::BitboxSync(request) => bitboxsync::process(hal, request).await,
