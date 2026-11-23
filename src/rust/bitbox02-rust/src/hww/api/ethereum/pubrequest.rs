@@ -47,6 +47,7 @@ async fn process_address(
                 body: &address_display,
                 scrollable: true,
                 body_is_address: true,
+                qr_code: Some(&address),
                 ..Default::default()
             })
             .await?;
@@ -185,6 +186,7 @@ mod tests {
                 longtouch: false,
             }]
         );
+        assert_eq!(mock_hal.ui.confirm_qr_codes, vec![Some(ADDRESS.into())]);
 
         // All good, with display, unusual keypath.
         mock_unlocked();
@@ -220,6 +222,10 @@ mod tests {
                     longtouch: false,
                 },
             ]
+        );
+        assert_eq!(
+            mock_hal.ui.confirm_qr_codes,
+            vec![None, Some(ADDRESS.into())]
         );
 
         // Keystore locked.

@@ -220,6 +220,7 @@ async fn address_simple(
             body: &address_formatted,
             scrollable: true,
             body_is_address: true,
+            qr_code: Some(&address),
             ..Default::default()
         };
         hal.ui().confirm(&confirm_params).await?;
@@ -263,6 +264,7 @@ pub async fn address_multisig(
                 body: &address_formatted,
                 scrollable: true,
                 body_is_address: true,
+                qr_code: Some(&address),
                 ..Default::default()
             })
             .await?;
@@ -305,6 +307,7 @@ async fn address_policy(
                 body: &address_formatted,
                 scrollable: true,
                 body_is_address: true,
+                qr_code: Some(&address),
                 ..Default::default()
             })
             .await?;
@@ -888,6 +891,10 @@ mod tests {
                     longtouch: false,
                 },]
             );
+            assert_eq!(
+                mock_hal.ui.confirm_qr_codes,
+                vec![Some(test.expected_address.into())]
+            );
         }
 
         // --- Negative tests
@@ -1146,6 +1153,10 @@ mod tests {
                     },
                 ]
             );
+            assert_eq!(
+                mock_hal.ui.confirm_qr_codes,
+                vec![None, None, Some(test.expected_address.into())]
+            );
 
             for display in [false, true] {
                 let mut req = req.clone();
@@ -1319,6 +1330,14 @@ mod tests {
                 Ok(Response::Pub(pb::PubResponse {
                     r#pub: test.expected_address.into(),
                 })),
+            );
+
+            let mut req = req.clone();
+            req.display = true;
+            assert!(process_pub(&mut mock_hal, &req).await.is_ok());
+            assert_eq!(
+                mock_hal.ui.confirm_qr_codes.last().unwrap().as_deref(),
+                Some(test.expected_address)
             );
         }
     }

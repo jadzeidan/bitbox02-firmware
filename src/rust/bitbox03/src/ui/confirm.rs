@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::string::String;
+use alloc::vec;
 use bitbox_hal::ui::{ConfirmParams, Font, MAX_CONFIRM_BODY_SIZE, UserAbort};
 use bitbox_lvgl::{
-    self as lvgl, BitboxLabel, BitboxLabelLongMode, LabelExt, LvObj, LvObjFlag, LvOpacityLevel,
-    ObjExt,
+    self as lvgl, BitboxLabel, BitboxLabelLongMode, LabelExt, LvButton, LvObj, LvObjFlag,
+    LvOpacityLevel, LvQrcode, ObjExt, QrcodeExt,
 };
 use util::futures::completion::Responder;
 use zeroize::Zeroizing;
 
-use super::nav_button::{NavIcon, build_close_button, build_nav_button};
+use super::nav_button::{
+    NavIcon, add_icon, build_close_button, build_nav_button, enable_press_invert,
+    style_outline_button,
+};
 use super::slide_to_confirm::build_slide_to_confirm;
 
 // Confirmation bodies can contain secrets. Preallocate to avoid unwiped copies from growth.
@@ -59,8 +63,87 @@ pub fn build_confirm_screen(
     };
     body.set_style_text_font(body_font, lvgl::LvState::LV_STATE_DEFAULT as u32);
 
+    if let Some(data) = params.qr_code {
+        add_qr_code(&body_container, data);
+    }
+
     add_actions(&screen, params.longtouch, params.accept_only, responder);
     screen
+}
+
+const QR_CARD_SIZE: i32 = 204;
+// The white margin is this plus the space left over by whole-pixel module scaling: about 2.5
+// modules for a 42 character address, less than the four of the QR code specification.
+const QR_CARD_PADDING: i32 = 12;
+
+/// Appends a button to the flex column `parent` that shows and hides a QR code of `data` below it.
+fn add_qr_code(parent: &LvObj, data: &str) {
+    parent.set_style_flex_cross_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
+
+    let button = LvButton::new(parent).unwrap();
+    button.set_size(lvgl::ffi::LV_SIZE_CONTENT as i32, 60);
+    button.set_style_margin_top(24, 0);
+    button.set_style_radius(19, 0); // navigation-button corner radius
+    style_outline_button(&button, 2);
+    button.set_style_pad_left(20, 0);
+    button.set_style_pad_right(20, 0);
+    button.set_layout(lvgl::LvLayout::LV_LAYOUT_FLEX);
+    button.set_flex_flow(lvgl::LvFlexFlow::LV_FLEX_FLOW_ROW);
+    button.set_style_flex_main_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
+    button.set_style_flex_cross_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
+    button.set_style_flex_track_place(lvgl::LvFlexAlign::LV_FLEX_ALIGN_CENTER, 0);
+    button.set_style_pad_column(12, 0);
+
+    let icon = add_icon(&button, include_bytes!("../../icons/qr_code.png"));
+    let button_label = BitboxLabel::new(&button).unwrap();
+    button_label.set_text("Show QR code").unwrap();
+    button_label.set_style_text_font(
+        lvgl::fonts::INTER_REGULAR_24,
+        lvgl::LvState::LV_STATE_DEFAULT as u32,
+    );
+    button_label.set_style_text_color(lvgl::color::white(), 0);
+    button_label.set_style_text_color(lvgl::color::black(), lvgl::LvState::LV_STATE_PRESSED as u32);
+    enable_press_invert(&button, vec![icon, button.child(1).unwrap()]);
+
+    let card = LvObj::with_parent(parent).unwrap();
+    card.set_size(QR_CARD_SIZE, QR_CARD_SIZE);
+    card.set_style_margin_top(24, 0);
+    card.set_style_bg_color(lvgl::color::white(), 0);
+    card.set_style_border_width(0, 0);
+    card.set_style_radius(16, 0);
+    card.remove_flag(LvObjFlag::LV_OBJ_FLAG_SCROLLABLE);
+    card.add_flag(LvObjFlag::LV_OBJ_FLAG_HIDDEN);
+
+    let qr_code = LvQrcode::new(&card).unwrap();
+    qr_code.set_size(QR_CARD_SIZE - 2 * QR_CARD_PADDING);
+    qr_code.align(lvgl::LvAlign::LV_ALIGN_CENTER, 0, 0);
+    if qr_code.update(data.as_bytes()).is_err() {
+        // Not encodable; the body above remains the reference.
+        unsafe {
+            card.delete();
+            button.delete();
+        }
+        return;
+    }
+
+    let body = parent.child(0).unwrap();
+    let mut shown = false;
+    button
+        .add_click_cb(move || {
+            shown = !shown;
+            if shown {
+                card.remove_flag(LvObjFlag::LV_OBJ_FLAG_HIDDEN);
+                // A long body leaves too little room for the code.
+                card.scroll_to_view(false);
+                button_label.set_text("Hide QR code").unwrap();
+            } else {
+                card.add_flag(LvObjFlag::LV_OBJ_FLAG_HIDDEN);
+                // LVGL does not scroll back by itself when the content shrinks.
+                body.scroll_to_view(false);
+                button_label.set_text("Show QR code").unwrap();
+            }
+        })
+        .expect("failed to register QR code callback");
 }
 
 /// A confirm screen listing `items`, e.g. the amount and recipient of a transaction.
@@ -195,7 +278,7 @@ mod tests {
     use bitbox_lvgl::{LvPart, class, ffi};
     use util::futures::completion;
 
-    use super::super::test_util::{coords, lock_and_init, pump_for};
+    use super::super::test_util::{ScriptedTouch, coords, lock_and_init, pump_for};
     use super::*;
 
     struct Harness {
@@ -253,6 +336,15 @@ mod tests {
     fn label_text(label: LvObj) -> String {
         let label = label.try_downcast::<class::LabelTag>().unwrap();
         String::from(label.get_text().unwrap().to_str().unwrap())
+    }
+
+    fn is_hidden(obj: &LvObj) -> bool {
+        unsafe { ffi::lv_obj_has_flag(obj.as_ptr(), LvObjFlag::LV_OBJ_FLAG_HIDDEN) }
+    }
+
+    fn tap(touch: &mut ScriptedTouch, obj: &LvObj) {
+        let area = coords(obj);
+        touch.tap((area.x1 + area.x2) / 2, (area.y1 + area.y2) / 2);
     }
 
     #[test]
@@ -314,6 +406,127 @@ mod tests {
         // Four 4-character groups fit per line, so the 11 groups take three lines.
         let area = coords(&address);
         assert_eq!(area.y2 - area.y1 + 1, 3 * font.line_height());
+    }
+
+    #[test]
+    fn test_build_confirm_screen_qr_code() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&ConfirmParams {
+            title: "Bitcoin",
+            body: "bc1q w508 d6qe jxtd g4y5 r3za rvar y0c5 xw7k v8f3 t4",
+            body_is_address: true,
+            qr_code: Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            ..Default::default()
+        });
+        let mut touch = ScriptedTouch::new();
+
+        let container = harness.body_container();
+        let address = coords(&container.child(0).unwrap());
+        let button = container.child(1).unwrap();
+        let card = container.child(2).unwrap();
+        assert!(container.child(3).is_none());
+        // The button is centered below the address; the code is hidden at first.
+        let button_area = coords(&button);
+        assert_eq!(button_area.y1 - address.y2 - 1, 24);
+        assert_eq!(button_area.y2 - button_area.y1, 59);
+        assert!(((button_area.x1 - address.x1) - (address.x2 - button_area.x2)).abs() <= 1);
+        assert_eq!(label_text(button.child(1).unwrap()), "Show QR code");
+        assert!(is_hidden(&card));
+        // The outline is 22px from the icon and the text, which are 12px apart.
+        let icon_area = coords(&button.child(0).unwrap());
+        let label_area = coords(&button.child(1).unwrap());
+        assert_eq!(icon_area.x2 - icon_area.x1, 23);
+        assert_eq!(icon_area.y2 - icon_area.y1, 23);
+        assert_eq!(label_area.x1 - icon_area.x2 - 1, 12);
+        assert_eq!(icon_area.x1 - button_area.x1, 22);
+        assert_eq!(button_area.x2 - label_area.x2, 22);
+        assert!(((icon_area.y1 - button_area.y1) - (button_area.y2 - icon_area.y2)).abs() <= 1);
+
+        tap(&mut touch, &button);
+        assert_eq!(label_text(button.child(1).unwrap()), "Hide QR code");
+        assert!(!is_hidden(&card));
+        // The outline follows the shorter text.
+        let hide_button_area = coords(&button);
+        assert!(hide_button_area.x2 - hide_button_area.x1 < button_area.x2 - button_area.x1);
+        assert_eq!(
+            coords(&button.child(0).unwrap()).x1 - hide_button_area.x1,
+            22
+        );
+        assert_eq!(
+            hide_button_area.x2 - coords(&button.child(1).unwrap()).x2,
+            22
+        );
+        assert!(
+            ((hide_button_area.x1 - address.x1) - (address.x2 - hide_button_area.x2)).abs() <= 1
+        );
+        // A 204px square, centered below the button and visible without scrolling.
+        let card_area = coords(&card);
+        assert_eq!(card_area.y1 - button_area.y2 - 1, 24);
+        assert_eq!(card_area.x1 - address.x1, 88);
+        assert_eq!(address.x2 - card_area.x2, 88);
+        assert_eq!(card_area.y2 - card_area.y1, 203);
+        assert!(card_area.y2 <= coords(&container).y2);
+        assert_eq!(coords(&button).y1, button_area.y1);
+
+        let qr_code = card.child(0).unwrap();
+        assert!(qr_code.has_class::<class::QrcodeTag>());
+        let qr_code_area = coords(&qr_code);
+        assert_eq!(qr_code_area.x1 - card_area.x1, 12);
+        assert_eq!(qr_code_area.y1 - card_area.y1, 12);
+        assert_eq!(card_area.x2 - qr_code_area.x2, 12);
+        assert_eq!(card_area.y2 - qr_code_area.y2, 12);
+
+        tap(&mut touch, &button);
+        assert_eq!(label_text(button.child(1).unwrap()), "Show QR code");
+        assert!(is_hidden(&card));
+    }
+
+    #[test]
+    fn test_build_confirm_screen_qr_code_scroll() {
+        let _lock = lock_and_init();
+        // Seven lines, which leave too little room below for the code.
+        let harness = Harness::new(&ConfirmParams {
+            title: "Cardano",
+            body: "addr1 q90t lskd 4mh5 kncm ul7v x887 j30t jtfg vap5 n0g0 rf9q qc7z nmnd rdhe 7rwv \
+                   qkw5 c7mq np4a 3yfl nvu6 kff7 l5du ngvq mvu6 hs",
+            body_is_address: true,
+            qr_code: Some(
+                "addr1q90tlskd4mh5kncmul7vx887j30tjtfgvap5n0g0rf9qqc7znmndrdhe7rwvqkw5c7mqnp4a3yfl\
+                 nvu6kff7l5dungvqmvu6hs",
+            ),
+            ..Default::default()
+        });
+        let mut touch = ScriptedTouch::new();
+
+        let container = harness.body_container();
+        let container_area = coords(&container);
+        let address = container.child(0).unwrap();
+        let button = container.child(1).unwrap();
+        let card = container.child(2).unwrap();
+
+        // Showing the code scrolls it into view.
+        tap(&mut touch, &button);
+        assert!(coords(&address).y1 < container_area.y1);
+        assert_eq!(coords(&card).y2, container_area.y2);
+
+        // Hiding it scrolls back to the start of the address.
+        tap(&mut touch, &button);
+        assert_eq!(coords(&address).y1, container_area.y1);
+    }
+
+    #[test]
+    fn test_build_confirm_screen_qr_code_too_long() {
+        let _lock = lock_and_init();
+        // More than fits the largest QR code.
+        let data = "a".repeat(3000);
+        let harness = Harness::new(&ConfirmParams {
+            title: "Title",
+            body: "Body",
+            qr_code: Some(&data),
+            ..Default::default()
+        });
+
+        assert!(harness.body_container().child(1).is_none());
     }
 
     #[test]

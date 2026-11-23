@@ -362,8 +362,9 @@ mod tests {
                 accept_only: true,
                 accept_is_nextarrow: true,
                 display_size: 42,
-                // BitBox03-only rendering hint; the BitBox02 conversion drops it.
+                // BitBox03-only rendering hints; the BitBox02 conversion drops them.
                 body_is_address: true,
+                qr_code: Some("qr"),
             };
             let output = to_bitbox02_confirm_params(&input);
             assert_eq!(output.title, "title");

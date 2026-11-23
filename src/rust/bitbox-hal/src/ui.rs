@@ -56,6 +56,9 @@ pub struct ConfirmParams<'a> {
     /// If true, the body is a coin address. The BitBox03 renders it in a monospace font; the
     /// BitBox02 ignores it.
     pub body_is_address: bool,
+    /// If set, the BitBox03 offers to show this text as a QR code below the body, e.g. a receive
+    /// address without the grouping used for display. The BitBox02 ignores it.
+    pub qr_code: Option<&'a str>,
 }
 
 #[derive(Default)]

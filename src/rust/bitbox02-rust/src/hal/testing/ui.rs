@@ -84,6 +84,7 @@ pub struct TestingUi<'a> {
     pub screens: Vec<Screen>,
     pub confirm_display_sizes: Vec<usize>,
     pub confirm_scrollable: Vec<bool>,
+    pub confirm_qr_codes: Vec<Option<String>>,
     progress_screens: Rc<RefCell<Vec<ProgressScreen>>>,
     _enter_string_async: Option<EnterStringAsyncCb<'a>>,
     _enter_wordlist_word: Option<EnterWordlistWordCb<'a>>,
@@ -148,6 +149,7 @@ impl Ui for TestingUi<'_> {
     async fn confirm(&mut self, params: &ConfirmParams<'_>) -> Result<(), UserAbort> {
         self.confirm_display_sizes.push(params.display_size);
         self.confirm_scrollable.push(params.scrollable);
+        self.confirm_qr_codes.push(params.qr_code.map(String::from));
         self.screens.push(Screen::Confirm {
             title: params.title.into(),
             body: params.body.into(),
@@ -355,6 +357,7 @@ impl<'a> TestingUi<'a> {
             screens: vec![],
             confirm_display_sizes: vec![],
             confirm_scrollable: vec![],
+            confirm_qr_codes: vec![],
             progress_screens: Rc::new(RefCell::new(vec![])),
             _abort_nth: None,
             _enter_string_async: None,

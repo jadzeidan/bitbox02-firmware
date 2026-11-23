@@ -175,6 +175,11 @@ pub trait ObjExt {
         unsafe { ffi::lv_obj_remove_state(self.as_ptr(), state) }
     }
 
+    /// Scrolls the parent as little as needed to make this object visible.
+    fn scroll_to_view(&self, anim: crate::LvAnimEnable) {
+        unsafe { ffi::lv_obj_scroll_to_view(self.as_ptr(), anim) }
+    }
+
     /// Returns the child at `index`, or `None` if out of range.
     fn child(&self, index: i32) -> Option<LvObj> {
         NonNull::new(unsafe { ffi::lv_obj_get_child(self.as_ptr(), index) }).map(LvHandle::from_ptr)

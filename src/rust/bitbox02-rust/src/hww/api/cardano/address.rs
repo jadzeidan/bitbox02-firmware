@@ -400,6 +400,7 @@ pub async fn process(
                 body: &displayed_address,
                 scrollable: true,
                 body_is_address: true,
+                qr_code: Some(&encoded_address),
                 ..Default::default()
             })
             .await?;
@@ -640,6 +641,7 @@ mod tests {
                 longtouch: false,
             },]
         );
+        assert_eq!(mock_hal.ui.confirm_qr_codes, vec![Some(EXPECTED.into())]);
     }
 
     #[async_test::test]
