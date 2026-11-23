@@ -278,6 +278,8 @@ fn main() -> Result<(), &'static str> {
     fonts.file(manifest_dir.join("../../ui/fonts/inter_medium_32.c"));
     fonts.file(manifest_dir.join("../../ui/fonts/inter_bold_32.c"));
     fonts.file(manifest_dir.join("../../ui/fonts/inter_bold_48.c"));
+    fonts.file(manifest_dir.join("../../ui/fonts/jetbrains_mono_regular_32.c"));
+    fonts.file(manifest_dir.join("../../ui/fonts/jetbrains_mono_bold_48.c"));
     for flag in &cflags {
         fonts.flag(flag);
     }

@@ -49,6 +49,9 @@ pub mod fonts {
     pub const INTER_MEDIUM_32: LvFont = unsafe { LvFont::new(&ffi::inter_medium_32) };
     pub const INTER_BOLD_32: LvFont = unsafe { LvFont::new(&ffi::inter_bold_32) };
     pub const INTER_BOLD_48: LvFont = unsafe { LvFont::new(&ffi::inter_bold_48) };
+    pub const JETBRAINS_MONO_REGULAR_32: LvFont =
+        unsafe { LvFont::new(&ffi::jetbrains_mono_regular_32) };
+    pub const JETBRAINS_MONO_BOLD_48: LvFont = unsafe { LvFont::new(&ffi::jetbrains_mono_bold_48) };
 }
 
 #[cfg(test)]
