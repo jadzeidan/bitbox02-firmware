@@ -13,6 +13,7 @@ pub mod keyboard;
 pub mod label;
 pub mod line;
 pub mod obj;
+pub mod qrcode;
 pub mod slider;
 pub mod span;
 pub mod spinner;

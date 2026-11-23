@@ -49,6 +49,9 @@ pub struct KeyboardTag;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineTag;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QrcodeTag;
+
 macro_rules! impl_lv_class {
     ($class:ty, $ffi_symbol:ident) => {
         impl LvClass for $class {
@@ -73,6 +76,7 @@ impl_lv_class!(TextareaTag, bitbox_lv_textarea_class);
 impl_lv_class!(ButtonmatrixTag, lv_buttonmatrix_class);
 impl_lv_class!(KeyboardTag, bitbox_lv_keyboard_class);
 impl_lv_class!(LineTag, lv_line_class);
+impl_lv_class!(QrcodeTag, lv_qrcode_class);
 
 #[cfg(test)]
 mod tests {

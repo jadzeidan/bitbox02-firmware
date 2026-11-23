@@ -122,3 +122,4 @@ impl LvHandle<class::CanvasTag> {
 }
 
 impl CanvasExt for LvHandle<class::CanvasTag> {}
+impl CanvasExt for LvHandle<class::QrcodeTag> {}

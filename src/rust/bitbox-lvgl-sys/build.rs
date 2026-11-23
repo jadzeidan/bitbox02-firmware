@@ -77,6 +77,8 @@ const LVGL_C_FILES: &[&str] = &[
     // LodePNG image decoder
     "src/libs/lodepng/lodepng.c",
     "src/image/lv_lodepng.c",
+    // QR code generator used by the qrcode widget
+    "src/libs/qrcode/qrcodegen.c",
     // LVGL initialization
     "src/lv_init.c",
     // Cache
@@ -170,6 +172,7 @@ const LVGL_C_FILES: &[&str] = &[
     "src/widgets/list/lv_list.c",
     "src/widgets/menu/lv_menu.c",
     "src/widgets/msgbox/lv_msgbox.c",
+    "src/widgets/qrcode/lv_qrcode.c",
     "src/widgets/roller/lv_roller.c",
     "src/widgets/scale/lv_scale.c",
     "src/widgets/slider/lv_slider.c",

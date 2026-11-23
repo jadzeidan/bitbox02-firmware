@@ -88,6 +88,7 @@ pub use widgets::line::LvLine;
 pub use widgets::obj;
 pub use widgets::obj::LvObj;
 pub use widgets::obj::{LvHandle, LvTypeError, ObjExt};
+pub use widgets::qrcode::{LvQrcode, LvQrcodeUpdateError, QrcodeExt};
 pub use widgets::slider::{LvSlider, SliderExt};
 pub use widgets::span::{LvSpan, LvSpanTextError, LvSpangroup, SpangroupExt};
 pub use widgets::spinner::{LvSpinner, SpinnerExt};
