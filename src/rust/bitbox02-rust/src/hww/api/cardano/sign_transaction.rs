@@ -269,7 +269,7 @@ async fn _process(
                 let displayed_address =
                     super::address::format_display_address(&output.encoded_address);
                 hal.ui()
-                    .verify_recipient(&displayed_address, &formatted_value)
+                    .verify_recipient_address(None, &displayed_address, &formatted_value)
                     .await?;
                 total = total.checked_add(output.value).ok_or(Error::InvalidInput)?;
 

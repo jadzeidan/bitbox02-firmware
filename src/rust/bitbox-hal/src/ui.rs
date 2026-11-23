@@ -119,6 +119,24 @@ pub trait Ui {
 
     async fn verify_recipient(&mut self, recipient: &str, amount: &str) -> Result<(), UserAbort>;
 
+    /// Like [`Self::verify_recipient`] for a recipient that is a coin address, optionally
+    /// introduced by `prefix`. Platforms can override this to render the address differently
+    /// from the prefix.
+    async fn verify_recipient_address(
+        &mut self,
+        prefix: Option<&str>,
+        address: &str,
+        amount: &str,
+    ) -> Result<(), UserAbort> {
+        match prefix {
+            Some(prefix) => {
+                self.verify_recipient(&alloc::format!("{prefix}: {address}"), amount)
+                    .await
+            }
+            None => self.verify_recipient(address, amount).await,
+        }
+    }
+
     async fn verify_total_fee(
         &mut self,
         total: &str,

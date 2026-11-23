@@ -1113,14 +1113,10 @@ async fn _process(
                 };
 
                 let address_formatted = util::strings::format_address(&address()?);
-                let recipient = if let Some(prefix) = prefix {
-                    format!("{}: {}", prefix, address_formatted)
-                } else {
-                    address_formatted
-                };
                 hal.ui()
-                    .verify_recipient(
-                        &recipient,
+                    .verify_recipient_address(
+                        prefix.as_deref(),
+                        &address_formatted,
                         &format_amount(coin_params, format_unit, tx_output.value)?,
                     )
                     .await?;

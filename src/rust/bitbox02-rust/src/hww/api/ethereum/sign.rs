@@ -422,7 +422,7 @@ async fn verify_erc20_transaction(
         ),
     };
     hal.ui()
-        .verify_recipient(&recipient_address_display, &formatted_value)
+        .verify_recipient_address(None, &recipient_address_display, &formatted_value)
         .await?;
     verify_erc20_total_fee(hal, request, params, &formatted_total).await?;
     Ok(())
@@ -547,7 +547,7 @@ async fn verify_standard_transaction(
         value: BigUint::from_bytes_be(request.value()),
     };
     hal.ui()
-        .verify_recipient(&address_display, &amount.format())
+        .verify_recipient_address(None, &address_display, &amount.format())
         .await?;
 
     verify_standard_total_fee(hal, request, params, &amount.value).await?;

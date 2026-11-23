@@ -630,6 +630,34 @@ mod tests {
     }
 
     #[async_test::test]
+    async fn test_verify_recipient_address() {
+        let mut ui = TestingUi::new();
+        assert!(
+            ui.verify_recipient_address(None, "address", "1 BTC")
+                .await
+                .is_ok()
+        );
+        assert!(
+            ui.verify_recipient_address(Some("prefix"), "address", "1 BTC")
+                .await
+                .is_ok()
+        );
+        assert_eq!(
+            ui.screens,
+            vec![
+                Screen::Recipient {
+                    recipient: "address".into(),
+                    amount: "1 BTC".into(),
+                },
+                Screen::Recipient {
+                    recipient: "prefix: address".into(),
+                    amount: "1 BTC".into(),
+                },
+            ]
+        );
+    }
+
+    #[async_test::test]
     async fn test_unlock_animation_records_screen() {
         let mut ui = TestingUi::new();
         let animation = ui.unlock_animation_create();
