@@ -14,7 +14,9 @@ use bitbox_lvgl::{
 };
 
 use super::keyboard::gray;
-use super::nav_button::{NavIcon, build_nav_button, enable_press_invert, style_outline_button};
+use super::nav_button::{
+    NavIcon, build_nav_button, enable_press_invert, style_icon_disabled, style_outline_button,
+};
 
 /// Key side length; matches the navigation buttons.
 const KEY_SIZE: i32 = 82;
@@ -109,7 +111,7 @@ where
     backspace.set_pos(0, bottom);
     let backspace_icon = backspace.child(0).expect("backspace icon");
     backspace.set_style_border_color(gray(), lvgl::LvState::LV_STATE_DISABLED as u32);
-    backspace_icon.set_style_image_recolor(gray(), lvgl::LvState::LV_STATE_DISABLED as u32);
+    style_icon_disabled(&backspace_icon);
     let delete_textarea = Rc::clone(&textarea);
     backspace
         .add_click_cb(move || delete_textarea.delete_char())

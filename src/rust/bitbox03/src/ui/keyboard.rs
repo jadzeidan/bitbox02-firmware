@@ -33,7 +33,7 @@ use bitbox_lvgl::{
     LvPart, LvState, ObjExt, TextareaExt,
 };
 
-use super::nav_button::{add_icon, enable_press_invert, style_outline_button};
+use super::nav_button::{add_icon, enable_press_invert, style_icon_disabled, style_outline_button};
 
 /// Character-key size (mockup: 40×60 keys in a 45px-pitch grid with 5px gaps).
 const KEY_WIDTH: i32 = 40;
@@ -602,7 +602,7 @@ pub fn build_keyboard(parent: &LvObj, textarea: Rc<BitboxTextarea>) -> LvObj {
     // A second handle to the icon canvas, for the checked/disabled recolors.
     let capslock_icon = capslock.child(0).expect("caps lock icon");
     capslock_icon.set_style_image_recolor(lvgl::color::black(), CHECKED);
-    capslock_icon.set_style_image_recolor(gray(), DISABLED);
+    style_icon_disabled(&capslock_icon);
 
     // Space bar (no label; press feedback is the white fill).
     let space = LvButton::new(&container).unwrap();

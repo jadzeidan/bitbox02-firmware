@@ -20,11 +20,18 @@ const PRESSED_SELECTOR: u32 = LvState::LV_STATE_PRESSED as u32;
 /// Style selector for the disabled state.
 const DISABLED_SELECTOR: u32 = LvState::LV_STATE_DISABLED as u32;
 
+/// Duration of the fade in and out of the press highlight.
+const PRESS_FADE_MS: u32 = 50;
+
 /// Properties that change between the normal and pressed look (the button's white fill).
 const PRESS_TRANSITION_PROPS: [u8; 3] = [prop::BG_OPA, prop::BG_COLOR, prop::INV];
-/// Effectively instant (1ms) transition, overriding the default theme's ~80ms fade so the press
-/// highlight appears/clears immediately even on a very short tap.
-static PRESS_TRANSITION: LvStyleTransition = LvStyleTransition::new(&PRESS_TRANSITION_PROPS, 1, 0);
+/// Fades the press highlight in and out, overriding the default theme's delayed ~80ms fade.
+static PRESS_TRANSITION: LvStyleTransition =
+    LvStyleTransition::new(&PRESS_TRANSITION_PROPS, PRESS_FADE_MS, 0);
+/// Properties that invert an icon or a label on the button along with the fill.
+const PART_TRANSITION_PROPS: [u8; 3] = [prop::IMAGE_RECOLOR, prop::TEXT_COLOR, prop::INV];
+static PART_TRANSITION: LvStyleTransition =
+    LvStyleTransition::new(&PART_TRANSITION_PROPS, PRESS_FADE_MS, 0);
 
 /// Which navigation icon to show inside the button frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,10 +82,13 @@ pub(super) fn add_icon(button: &LvButton, png: &[u8]) -> LvObj {
     canvas.to_obj()
 }
 
-/// Wires the pressed-state look: the interior fills white (cancelling the theme's grow + dim, with
-/// an instant transition) and the icon inverts to black. A child does not inherit the button's
-/// pressed state, so it is propagated to the icon via press/release events.
+/// Wires the pressed-state look: the interior fills white (cancelling the theme's grow + dim) and
+/// the icon inverts to black, fading in and out over [`PRESS_FADE_MS`]. A child does not inherit
+/// the button's pressed state, so it is propagated to the icon via press/release events.
 pub(super) fn enable_press_invert(button: &LvButton, parts: Vec<LvObj>) {
+    // White while still transparent too, so the fill fades in without a tint of the theme's
+    // button color.
+    button.set_style_bg_color(lvgl::color::white(), 0);
     button.set_style_bg_color(lvgl::color::white(), PRESSED_SELECTOR);
     button.set_style_bg_opa(LvOpacityLevel::LV_OPA_COVER as u8, PRESSED_SELECTOR);
     // The default theme dims pressed objects (black recolor); disable so the fill is pure white.
@@ -86,9 +96,12 @@ pub(super) fn enable_press_invert(button: &LvButton, parts: Vec<LvObj>) {
     // The default theme also grows pressed objects; cancel it.
     button.set_style_transform_width(0, PRESSED_SELECTOR);
     button.set_style_transform_height(0, PRESSED_SELECTOR);
-    // Override the theme's ~80ms fade so the fill appears/clears instantly.
     button.set_style_transition(Some(&PRESS_TRANSITION), PRESSED_SELECTOR);
     button.set_style_transition(Some(&PRESS_TRANSITION), 0);
+    for part in &parts {
+        part.set_style_transition(Some(&PART_TRANSITION), PRESSED_SELECTOR);
+        part.set_style_transition(Some(&PART_TRANSITION), 0);
+    }
 
     let parts = Rc::new(parts);
     let on_press = Rc::clone(&parts);
@@ -114,6 +127,13 @@ pub(super) fn enable_press_invert(button: &LvButton, parts: Vec<LvObj>) {
             }
         })
         .expect("failed to register press-lost callback");
+}
+
+/// Gives the icon of a button its gray disabled look. A recolor would be faded by the press
+/// transition of [`enable_press_invert`], after the border has already changed.
+pub(super) fn style_icon_disabled(icon: &LvObj) {
+    // White at this opacity on the black screen is the disabled gray, 0x777777.
+    icon.set_style_image_opa(0x77, DISABLED_SELECTOR);
 }
 
 /// Common frame styling for an outline icon button (transparent fill, white border, no shadow,
@@ -172,4 +192,147 @@ pub fn build_close_button(parent: &LvObj) -> LvButton {
     enable_press_invert(&button, vec![icon_obj]);
 
     button
+}
+
+#[cfg(test)]
+mod tests {
+    use bitbox_lvgl::{BitboxLabel, LabelExt, LvPart, ffi};
+
+    use super::super::test_util::{lock_and_init, pump_for};
+    use super::*;
+
+    struct Harness {
+        screen: LvObj,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let screen = LvObj::new().unwrap();
+            unsafe { ffi::lv_screen_load(screen.as_ptr()) };
+            Self { screen }
+        }
+    }
+
+    impl Drop for Harness {
+        fn drop(&mut self) {
+            // Swap in a fresh empty screen so the tested screen can be deleted.
+            let blank = LvObj::new().unwrap();
+            unsafe {
+                ffi::lv_screen_load(blank.as_ptr());
+            }
+            pump_for(40);
+            unsafe { core::ptr::read(&self.screen).delete() };
+        }
+    }
+
+    fn style_prop(obj: &impl ObjExt, prop: ffi::_lv_style_id_t) -> ffi::lv_style_value_t {
+        unsafe {
+            ffi::lv_obj_get_style_prop(
+                obj.as_ptr(),
+                LvPart::LV_PART_MAIN,
+                prop as ffi::lv_style_prop_t,
+            )
+        }
+    }
+
+    fn opa(obj: &impl ObjExt, prop: ffi::_lv_style_id_t) -> u8 {
+        unsafe { style_prop(obj, prop).num as u8 }
+    }
+
+    /// 255 for white, 0 for black.
+    fn brightness(obj: &impl ObjExt, prop: ffi::_lv_style_id_t) -> u8 {
+        let color = unsafe { style_prop(obj, prop).color };
+        assert_eq!((color.red, color.green), (color.blue, color.blue));
+        color.blue
+    }
+
+    fn transition_ms(obj: &impl ObjExt) -> u32 {
+        let transition = unsafe { style_prop(obj, ffi::_lv_style_id_t::LV_STYLE_TRANSITION).ptr };
+        unsafe { (*transition.cast::<ffi::lv_style_transition_dsc_t>()).time }
+    }
+
+    fn send(obj: &impl ObjExt, code: LvEventCode) {
+        unsafe { ffi::lv_obj_send_event(obj.as_ptr(), code, core::ptr::null_mut()) };
+    }
+
+    fn pump_fade() {
+        pump_for(PRESS_FADE_MS as u64 + 100);
+    }
+
+    #[test]
+    fn test_enable_press_invert() {
+        use ffi::_lv_style_id_t::{
+            LV_STYLE_BG_COLOR, LV_STYLE_BG_OPA, LV_STYLE_IMAGE_RECOLOR, LV_STYLE_TEXT_COLOR,
+        };
+
+        let _lock = lock_and_init();
+        let harness = Harness::new();
+        let icon_button = build_nav_button(&harness.screen, NavIcon::Confirm);
+        let icon = icon_button.child(0).unwrap();
+        let text_button = LvButton::new(&harness.screen).unwrap();
+        style_outline_button(&text_button, 2);
+        let label = BitboxLabel::new(&text_button).unwrap();
+        label.set_text("OK").unwrap();
+        label.set_style_text_color(lvgl::color::white(), 0);
+        label.set_style_text_color(lvgl::color::black(), PRESSED_SELECTOR);
+        enable_press_invert(&text_button, vec![text_button.child(0).unwrap()]);
+        pump_for(60); // LVGL does not animate state changes of objects not rendered yet
+
+        // Pressing fades the white fill in and the icon or text to black.
+        send(&icon_button, LvEventCode::LV_EVENT_PRESSED);
+        send(&text_button, LvEventCode::LV_EVENT_PRESSED);
+        assert_eq!(transition_ms(&icon_button), PRESS_FADE_MS);
+        assert_eq!(transition_ms(&icon), PRESS_FADE_MS);
+        assert_eq!(transition_ms(&label), PRESS_FADE_MS);
+        for button in [&icon_button, &text_button] {
+            assert_eq!(opa(button, LV_STYLE_BG_OPA), 0);
+            assert_eq!(brightness(button, LV_STYLE_BG_COLOR), 255);
+        }
+        assert_eq!(brightness(&icon, LV_STYLE_IMAGE_RECOLOR), 255);
+        assert_eq!(brightness(&label, LV_STYLE_TEXT_COLOR), 255);
+        pump_fade();
+        for button in [&icon_button, &text_button] {
+            assert_eq!(opa(button, LV_STYLE_BG_OPA), 255);
+        }
+        assert_eq!(brightness(&icon, LV_STYLE_IMAGE_RECOLOR), 0);
+        assert_eq!(brightness(&label, LV_STYLE_TEXT_COLOR), 0);
+
+        // Releasing, or losing the press, fades them back.
+        send(&icon_button, LvEventCode::LV_EVENT_RELEASED);
+        send(&text_button, LvEventCode::LV_EVENT_PRESS_LOST);
+        assert_eq!(transition_ms(&icon_button), PRESS_FADE_MS);
+        assert_eq!(transition_ms(&icon), PRESS_FADE_MS);
+        assert_eq!(transition_ms(&label), PRESS_FADE_MS);
+        for button in [&icon_button, &text_button] {
+            assert_eq!(opa(button, LV_STYLE_BG_OPA), 255);
+        }
+        assert_eq!(brightness(&icon, LV_STYLE_IMAGE_RECOLOR), 0);
+        assert_eq!(brightness(&label, LV_STYLE_TEXT_COLOR), 0);
+        pump_fade();
+        for button in [&icon_button, &text_button] {
+            assert_eq!(opa(button, LV_STYLE_BG_OPA), 0);
+        }
+        assert_eq!(brightness(&icon, LV_STYLE_IMAGE_RECOLOR), 255);
+        assert_eq!(brightness(&label, LV_STYLE_TEXT_COLOR), 255);
+    }
+
+    #[test]
+    fn test_style_icon_disabled() {
+        use ffi::_lv_style_id_t::{LV_STYLE_IMAGE_OPA, LV_STYLE_IMAGE_RECOLOR};
+
+        let _lock = lock_and_init();
+        let harness = Harness::new();
+        let button = build_nav_button(&harness.screen, NavIcon::Back);
+        let icon = button.child(0).unwrap();
+        style_icon_disabled(&icon);
+        pump_for(60); // LVGL does not animate state changes of objects not rendered yet
+
+        // Unlike a press, disabling and enabling take effect at once.
+        icon.add_state(LvState::LV_STATE_DISABLED);
+        assert_eq!(opa(&icon, LV_STYLE_IMAGE_OPA), 0x77);
+        assert_eq!(brightness(&icon, LV_STYLE_IMAGE_RECOLOR), 255);
+        icon.remove_state(LvState::LV_STATE_DISABLED);
+        assert_eq!(opa(&icon, LV_STYLE_IMAGE_OPA), 255);
+        assert_eq!(brightness(&icon, LV_STYLE_IMAGE_RECOLOR), 255);
+    }
 }

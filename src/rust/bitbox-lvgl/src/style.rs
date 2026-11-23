@@ -12,6 +12,7 @@ pub mod prop {
     pub const BG_COLOR: u8 = _lv_style_id_t::LV_STYLE_BG_COLOR as u8;
     pub const BG_OPA: u8 = _lv_style_id_t::LV_STYLE_BG_OPA as u8;
     pub const TEXT_COLOR: u8 = _lv_style_id_t::LV_STYLE_TEXT_COLOR as u8;
+    pub const IMAGE_RECOLOR: u8 = _lv_style_id_t::LV_STYLE_IMAGE_RECOLOR as u8;
     pub const LINE_COLOR: u8 = _lv_style_id_t::LV_STYLE_LINE_COLOR as u8;
 }
 
