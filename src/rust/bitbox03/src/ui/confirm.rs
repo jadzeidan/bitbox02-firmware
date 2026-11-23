@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::string::String;
-use bitbox_hal::ui::{ConfirmParams, MAX_CONFIRM_BODY_SIZE, UserAbort};
+use bitbox_hal::ui::{ConfirmParams, Font, MAX_CONFIRM_BODY_SIZE, UserAbort};
 use bitbox_lvgl::{
     self as lvgl, BitboxLabel, BitboxLabelLongMode, LabelExt, LvObj, LvObjFlag, LvOpacityLevel,
     ObjExt,
@@ -75,10 +75,14 @@ pub fn build_confirm_screen(
     body.set_width(380);
     body.set_long_mode(BitboxLabelLongMode::Wrap);
     body.set_text(&truncate_body(params.body)).unwrap();
-    body.set_style_text_font(
-        lvgl::fonts::INTER_REGULAR_32,
-        lvgl::LvState::LV_STATE_DEFAULT as u32,
-    );
+    let body_font = if matches!(params.font, Font::Monogram16) {
+        // A short code the user compares by eye, e.g. the pairing code.
+        body.set_style_text_align(lvgl::LvTextAlign::LV_TEXT_ALIGN_CENTER, 0);
+        lvgl::fonts::JETBRAINS_MONO_BOLD_48
+    } else {
+        lvgl::fonts::INTER_REGULAR_32
+    };
+    body.set_style_text_font(body_font, lvgl::LvState::LV_STATE_DEFAULT as u32);
 
     if params.longtouch {
         // High-stakes confirmation: the accept action is a slide gesture instead of a tap, and
@@ -125,7 +129,110 @@ pub fn build_confirm_screen(
 
 #[cfg(test)]
 mod tests {
+    use bitbox_lvgl::{LvPart, class, ffi};
+    use util::futures::completion;
+
+    use super::super::test_util::{coords, lock_and_init, pump_for};
     use super::*;
+
+    struct Harness {
+        screen: LvObj,
+    }
+
+    impl Harness {
+        fn new(params: &ConfirmParams<'_>) -> Self {
+            let (responder, _result) = completion::completion();
+            Self::load(build_confirm_screen(params, responder))
+        }
+
+        fn load(screen: LvObj) -> Self {
+            unsafe { ffi::lv_screen_load(screen.as_ptr()) };
+            pump_for(60); // layout + first render
+            Self { screen }
+        }
+
+        fn body_container(&self) -> LvObj {
+            self.screen.child(1).unwrap()
+        }
+    }
+
+    impl Drop for Harness {
+        fn drop(&mut self) {
+            // Swap in a fresh empty screen so the tested screen can be deleted.
+            let blank = LvObj::new().unwrap();
+            unsafe {
+                ffi::lv_screen_load(blank.as_ptr());
+            }
+            pump_for(40);
+            unsafe { core::ptr::read(&self.screen).delete() };
+        }
+    }
+
+    fn style_prop(label: &LvObj, prop: ffi::_lv_style_id_t) -> ffi::lv_style_value_t {
+        unsafe {
+            ffi::lv_obj_get_style_prop(
+                label.as_ptr(),
+                LvPart::LV_PART_MAIN,
+                prop as ffi::lv_style_prop_t,
+            )
+        }
+    }
+
+    fn text_font(label: &LvObj) -> *const ffi::lv_font_t {
+        unsafe { style_prop(label, ffi::_lv_style_id_t::LV_STYLE_TEXT_FONT).ptr }.cast()
+    }
+
+    fn is_text_centered(label: &LvObj) -> bool {
+        let align = unsafe { style_prop(label, ffi::_lv_style_id_t::LV_STYLE_TEXT_ALIGN).num };
+        align == lvgl::LvTextAlign::LV_TEXT_ALIGN_CENTER as i32
+    }
+
+    fn label_text(label: LvObj) -> String {
+        let label = label.try_downcast::<class::LabelTag>().unwrap();
+        String::from(label.get_text().unwrap().to_str().unwrap())
+    }
+
+    #[test]
+    fn test_build_confirm_screen_body() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&ConfirmParams {
+            title: "Title",
+            body: "Body",
+            ..Default::default()
+        });
+
+        let container = harness.body_container();
+        let body = container.child(0).unwrap();
+        assert!(container.child(1).is_none());
+        assert_eq!(text_font(&body), lvgl::fonts::INTER_REGULAR_32.as_ptr());
+        assert!(!is_text_centered(&body));
+        assert_eq!(label_text(body), "Body");
+    }
+
+    #[test]
+    fn test_build_confirm_screen_pairing_code() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&ConfirmParams {
+            title: "Pairing code",
+            body: "LEUJX W53W2\n3I5DY SP5E2",
+            font: Font::Monogram16,
+            ..Default::default()
+        });
+
+        let container = harness.body_container();
+        let code = container.child(0).unwrap();
+        assert!(container.child(1).is_none());
+        // The code sits in the top third of the 800px display.
+        let code_area = coords(&code);
+        assert!(code_area.y2 < 800 / 3);
+
+        let font = lvgl::fonts::JETBRAINS_MONO_BOLD_48;
+        assert_eq!(text_font(&code), font.as_ptr());
+        // Neither of its two lines wraps.
+        assert_eq!(code_area.y2 - code_area.y1 + 1, 2 * font.line_height());
+        assert!(is_text_centered(&code));
+        assert_eq!(label_text(code), "LEUJX W53W2\n3I5DY SP5E2");
+    }
 
     #[test]
     fn test_truncate_body() {
