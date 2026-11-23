@@ -46,6 +46,7 @@ async fn process_address(
                 title_autowrap: true,
                 body: &address_display,
                 scrollable: true,
+                body_is_address: true,
                 ..Default::default()
             })
             .await?;

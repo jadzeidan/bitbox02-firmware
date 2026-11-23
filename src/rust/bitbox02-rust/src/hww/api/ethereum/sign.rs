@@ -371,6 +371,7 @@ async fn verify_erc20_transaction(
                 title: &title,
                 body: &contract_address_display,
                 scrollable: true,
+                body_is_address: true,
                 accept_is_nextarrow: true,
                 ..Default::default()
             })

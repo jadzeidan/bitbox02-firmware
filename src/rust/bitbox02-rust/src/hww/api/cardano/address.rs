@@ -399,6 +399,7 @@ pub async fn process(
                 title: params.name,
                 body: &displayed_address,
                 scrollable: true,
+                body_is_address: true,
                 ..Default::default()
             })
             .await?;

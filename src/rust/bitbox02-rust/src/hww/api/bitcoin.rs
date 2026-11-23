@@ -219,6 +219,7 @@ async fn address_simple(
             title: params::get(coin).name,
             body: &address_formatted,
             scrollable: true,
+            body_is_address: true,
             ..Default::default()
         };
         hal.ui().confirm(&confirm_params).await?;
@@ -261,6 +262,7 @@ pub async fn address_multisig(
                 title: &title,
                 body: &address_formatted,
                 scrollable: true,
+                body_is_address: true,
                 ..Default::default()
             })
             .await?;
@@ -302,6 +304,7 @@ async fn address_policy(
                 title: &title,
                 body: &address_formatted,
                 scrollable: true,
+                body_is_address: true,
                 ..Default::default()
             })
             .await?;

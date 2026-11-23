@@ -79,6 +79,8 @@ pub fn build_confirm_screen(
         // A short code the user compares by eye, e.g. the pairing code.
         body.set_style_text_align(lvgl::LvTextAlign::LV_TEXT_ALIGN_CENTER, 0);
         lvgl::fonts::JETBRAINS_MONO_BOLD_48
+    } else if params.body_is_address {
+        lvgl::fonts::JETBRAINS_MONO_REGULAR_32
     } else {
         lvgl::fonts::INTER_REGULAR_32
     };
@@ -232,6 +234,25 @@ mod tests {
         assert_eq!(code_area.y2 - code_area.y1 + 1, 2 * font.line_height());
         assert!(is_text_centered(&code));
         assert_eq!(label_text(code), "LEUJX W53W2\n3I5DY SP5E2");
+    }
+
+    #[test]
+    fn test_build_confirm_screen_address() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&ConfirmParams {
+            title: "Bitcoin",
+            body: "bc1q w508 d6qe jxtd g4y5 r3za rvar y0c5 xw7k v8f3 t4",
+            body_is_address: true,
+            ..Default::default()
+        });
+
+        let address = harness.body_container().child(0).unwrap();
+        let font = lvgl::fonts::JETBRAINS_MONO_REGULAR_32;
+        assert_eq!(text_font(&address), font.as_ptr());
+        assert!(!is_text_centered(&address));
+        // Four 4-character groups fit per line, so the 11 groups take three lines.
+        let area = coords(&address);
+        assert_eq!(area.y2 - area.y1 + 1, 3 * font.line_height());
     }
 
     #[test]

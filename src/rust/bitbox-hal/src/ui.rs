@@ -53,6 +53,9 @@ pub struct ConfirmParams<'a> {
     pub accept_is_nextarrow: bool,
     /// Print the value of this variable in the corner. Will not print when 0
     pub display_size: usize,
+    /// If true, the body is a coin address. The BitBox03 renders it in a monospace font; the
+    /// BitBox02 ignores it.
+    pub body_is_address: bool,
 }
 
 #[derive(Default)]

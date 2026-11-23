@@ -118,6 +118,7 @@ pub async fn process(
         title: &title,
         body: &address_formatted,
         scrollable: true,
+        body_is_address: true,
         accept_is_nextarrow: true,
         ..Default::default()
     };
