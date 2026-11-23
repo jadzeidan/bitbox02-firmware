@@ -30,10 +30,78 @@ fn truncate_body(body: &str) -> Zeroizing<String> {
     truncated
 }
 
+/// A value on a transaction screen, optionally under a caption.
+pub struct Item<'a> {
+    pub caption: Option<&'a str>,
+    pub value: &'a str,
+    /// Amounts and addresses are monospace; other values use the regular text font.
+    pub monospace: bool,
+}
+
 pub fn build_confirm_screen(
     params: &ConfirmParams<'_>,
     responder: Responder<Result<(), UserAbort>>,
 ) -> LvObj {
+    let (screen, body_container) = build_frame(params.title);
+
+    let body = BitboxLabel::new(&body_container).unwrap();
+    body.set_width(380);
+    body.set_long_mode(BitboxLabelLongMode::Wrap);
+    body.set_text(&truncate_body(params.body)).unwrap();
+    let body_font = if matches!(params.font, Font::Monogram16) {
+        // A short code the user compares by eye, e.g. the pairing code.
+        body.set_style_text_align(lvgl::LvTextAlign::LV_TEXT_ALIGN_CENTER, 0);
+        lvgl::fonts::JETBRAINS_MONO_BOLD_48
+    } else if params.body_is_address {
+        lvgl::fonts::JETBRAINS_MONO_REGULAR_32
+    } else {
+        lvgl::fonts::INTER_REGULAR_32
+    };
+    body.set_style_text_font(body_font, lvgl::LvState::LV_STATE_DEFAULT as u32);
+
+    add_actions(&screen, params.longtouch, params.accept_only, responder);
+    screen
+}
+
+/// A confirm screen listing `items`, e.g. the amount and recipient of a transaction.
+pub fn build_items_screen(
+    title: &str,
+    items: &[Item<'_>],
+    longtouch: bool,
+    responder: Responder<Result<(), UserAbort>>,
+) -> LvObj {
+    let (screen, body_container) = build_frame(title);
+
+    for (index, item) in items.iter().enumerate() {
+        let value_font = if item.monospace {
+            lvgl::fonts::JETBRAINS_MONO_REGULAR_32
+        } else {
+            lvgl::fonts::INTER_REGULAR_32
+        };
+        let rows = [
+            item.caption
+                .map(|caption| (caption, lvgl::fonts::INTER_REGULAR_32)),
+            Some((item.value, value_font)),
+        ];
+        for (row, (text, font)) in rows.into_iter().flatten().enumerate() {
+            let label = BitboxLabel::new(&body_container).unwrap();
+            label.set_width(380);
+            label.set_long_mode(BitboxLabelLongMode::Wrap);
+            label.set_text(&truncate_body(text)).unwrap();
+            label.set_style_text_font(font, lvgl::LvState::LV_STATE_DEFAULT as u32);
+            // A caption sits directly above its value; items are spaced apart.
+            if index > 0 && row == 0 {
+                label.set_style_margin_top(24, 0);
+            }
+        }
+    }
+
+    add_actions(&screen, longtouch, false, responder);
+    screen
+}
+
+/// Returns the screen and the container to fill with the body.
+fn build_frame(title_text: &str) -> (LvObj, LvObj) {
     let screen = LvObj::new().unwrap();
     screen.set_layout(lvgl::LvLayout::LV_LAYOUT_FLEX);
     screen.set_flex_flow(lvgl::LvFlexFlow::LV_FLEX_FLOW_COLUMN);
@@ -50,7 +118,7 @@ pub fn build_confirm_screen(
     let title = BitboxLabel::new(&screen).unwrap();
     title.set_width(380);
     title.set_long_mode(BitboxLabelLongMode::Wrap);
-    title.set_text(params.title).unwrap();
+    title.set_text(title_text).unwrap();
     title.set_style_text_align(lvgl::LvTextAlign::LV_TEXT_ALIGN_CENTER, 0);
     title.set_style_text_font(
         lvgl::fonts::INTER_REGULAR_32,
@@ -70,38 +138,33 @@ pub fn build_confirm_screen(
     body_container.set_style_border_width(0, 0);
     body_container.set_style_bg_opa(LvOpacityLevel::LV_OPA_TRANSP as u8, 0);
     body_container.add_flag(LvObjFlag::LV_OBJ_FLAG_SCROLLABLE);
+    body_container.set_style_pad_row(0, 0);
 
-    let body = BitboxLabel::new(&body_container).unwrap();
-    body.set_width(380);
-    body.set_long_mode(BitboxLabelLongMode::Wrap);
-    body.set_text(&truncate_body(params.body)).unwrap();
-    let body_font = if matches!(params.font, Font::Monogram16) {
-        // A short code the user compares by eye, e.g. the pairing code.
-        body.set_style_text_align(lvgl::LvTextAlign::LV_TEXT_ALIGN_CENTER, 0);
-        lvgl::fonts::JETBRAINS_MONO_BOLD_48
-    } else if params.body_is_address {
-        lvgl::fonts::JETBRAINS_MONO_REGULAR_32
-    } else {
-        lvgl::fonts::INTER_REGULAR_32
-    };
-    body.set_style_text_font(body_font, lvgl::LvState::LV_STATE_DEFAULT as u32);
+    (screen, body_container)
+}
 
-    if params.longtouch {
+fn add_actions(
+    screen: &LvObj,
+    longtouch: bool,
+    accept_only: bool,
+    responder: Responder<Result<(), UserAbort>>,
+) {
+    if longtouch {
         // High-stakes confirmation: the accept action is a slide gesture instead of a tap, and
         // cancel moves to the corner close button (the slide track occupies the bottom row).
-        if !params.accept_only {
+        if !accept_only {
             let reject_responder = responder.clone();
-            let close = build_close_button(&screen);
+            let close = build_close_button(screen);
             close
                 .add_click_cb(move || reject_responder.resolve(Err(UserAbort)))
                 .expect("failed to register reject callback");
         }
-        let slide = build_slide_to_confirm(&screen, move || responder.resolve(Ok(())));
+        let slide = build_slide_to_confirm(screen, move || responder.resolve(Ok(())));
         slide.set_style_margin_top(16, 0);
-        return screen;
+        return;
     }
 
-    let actions = LvObj::with_parent(&screen).unwrap();
+    let actions = LvObj::with_parent(screen).unwrap();
     actions.set_width(380);
     actions.set_height(82);
     actions.set_layout(lvgl::LvLayout::LV_LAYOUT_FLEX);
@@ -125,8 +188,6 @@ pub fn build_confirm_screen(
     accept
         .add_click_cb(move || responder.resolve(Ok(())))
         .expect("failed to register accept callback");
-
-    screen
 }
 
 #[cfg(test)]
@@ -253,6 +314,59 @@ mod tests {
         // Four 4-character groups fit per line, so the 11 groups take three lines.
         let area = coords(&address);
         assert_eq!(area.y2 - area.y1 + 1, 3 * font.line_height());
+    }
+
+    #[test]
+    fn test_build_items_screen() {
+        let _lock = lock_and_init();
+        let (responder, _result) = completion::completion();
+        let harness = Harness::load(build_items_screen(
+            "Send",
+            &[
+                Item {
+                    caption: None,
+                    value: "0.1 BTC",
+                    monospace: true,
+                },
+                Item {
+                    caption: Some("This BitBox (same account):"),
+                    value: "bc1q w508 d6qe jxtd g4y5 r3za rvar y0c5 xw7k v8f3 t4",
+                    monospace: true,
+                },
+                Item {
+                    caption: None,
+                    value: "Merchant",
+                    monospace: false,
+                },
+            ],
+            false,
+            responder,
+        ));
+
+        let container = harness.body_container();
+        let inter = lvgl::fonts::INTER_REGULAR_32.as_ptr();
+        let mono = lvgl::fonts::JETBRAINS_MONO_REGULAR_32.as_ptr();
+        // A caption sits directly above its value; items are 24px apart.
+        let expected = [
+            ("0.1 BTC", mono, 0),
+            ("This BitBox (same account):", inter, 24),
+            (
+                "bc1q w508 d6qe jxtd g4y5 r3za rvar y0c5 xw7k v8f3 t4",
+                mono,
+                0,
+            ),
+            ("Merchant", inter, 24),
+        ];
+        let mut previous_bottom = coords(&container).y1 - 1;
+        for (index, &(text, font, gap)) in expected.iter().enumerate() {
+            let label = container.child(index as i32).unwrap();
+            let area = coords(&label);
+            assert_eq!(area.y1 - previous_bottom - 1, gap);
+            previous_bottom = area.y2;
+            assert_eq!(text_font(&label), font);
+            assert_eq!(label_text(label), text);
+        }
+        assert!(container.child(expected.len() as i32).is_none());
     }
 
     #[test]

@@ -11,6 +11,8 @@ use core::marker::PhantomData;
 use tracing::info;
 use util::futures::completion;
 
+use confirm::Item;
+
 pub mod choice;
 pub mod confirm;
 pub mod demo;
@@ -81,11 +83,20 @@ impl<Timer: bitbox_hal::timer::Timer> hal::ui::Ui for BitBox03Ui<Timer> {
         from: &str,
         to: &str,
     ) -> Result<(), bitbox_hal::ui::UserAbort> {
-        let body = format!("from\n{from}\n\nto\n{to}");
-        self.confirm(&bitbox_hal::ui::ConfirmParams {
-            title,
-            body: &body,
-            ..Default::default()
+        let items = [
+            Item {
+                caption: Some("from"),
+                value: from,
+                monospace: true,
+            },
+            Item {
+                caption: Some("to"),
+                value: to,
+                monospace: true,
+            },
+        ];
+        self.with_result_screen(|responder| {
+            confirm::build_items_screen(title, &items, false, responder)
         })
         .await
     }
@@ -95,12 +106,45 @@ impl<Timer: bitbox_hal::timer::Timer> hal::ui::Ui for BitBox03Ui<Timer> {
         recipient: &str,
         amount: &str,
     ) -> Result<(), bitbox_hal::ui::UserAbort> {
-        let body = format!("{amount}\n\n{recipient}");
-        self.confirm(&bitbox_hal::ui::ConfirmParams {
-            title: "Send",
-            body: &body,
-            accept_is_nextarrow: true,
-            ..Default::default()
+        let items = [
+            Item {
+                caption: None,
+                value: amount,
+                monospace: true,
+            },
+            Item {
+                caption: None,
+                value: recipient,
+                monospace: false,
+            },
+        ];
+        self.with_result_screen(|responder| {
+            confirm::build_items_screen("Send", &items, false, responder)
+        })
+        .await
+    }
+
+    async fn verify_recipient_address(
+        &mut self,
+        prefix: Option<&str>,
+        address: &str,
+        amount: &str,
+    ) -> Result<(), bitbox_hal::ui::UserAbort> {
+        let caption = prefix.map(|prefix| format!("{prefix}:"));
+        let items = [
+            Item {
+                caption: None,
+                value: amount,
+                monospace: true,
+            },
+            Item {
+                caption: caption.as_deref(),
+                value: address,
+                monospace: true,
+            },
+        ];
+        self.with_result_screen(|responder| {
+            confirm::build_items_screen("Send", &items, false, responder)
         })
         .await
     }
@@ -111,12 +155,20 @@ impl<Timer: bitbox_hal::timer::Timer> hal::ui::Ui for BitBox03Ui<Timer> {
         fee: &str,
         longtouch: bool,
     ) -> Result<(), bitbox_hal::ui::UserAbort> {
-        let body = format!("Total amount\n{total}\n\nFee\n{fee}");
-        self.confirm(&bitbox_hal::ui::ConfirmParams {
-            title: "Transaction",
-            body: &body,
-            longtouch,
-            ..Default::default()
+        let items = [
+            Item {
+                caption: Some("Total amount"),
+                value: total,
+                monospace: true,
+            },
+            Item {
+                caption: Some("Fee"),
+                value: fee,
+                monospace: true,
+            },
+        ];
+        self.with_result_screen(|responder| {
+            confirm::build_items_screen("Transaction", &items, longtouch, responder)
         })
         .await
     }
