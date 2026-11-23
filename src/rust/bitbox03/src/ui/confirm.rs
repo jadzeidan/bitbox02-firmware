@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec;
 use bitbox_hal::ui::{ConfirmParams, Font, MAX_CONFIRM_BODY_SIZE, UserAbort};
@@ -75,6 +76,7 @@ const QR_CARD_SIZE: i32 = 204;
 // The white margin is this plus the space left over by whole-pixel module scaling: about 2.5
 // modules for a 42 character address, less than the four of the QR code specification.
 const QR_CARD_PADDING: i32 = 12;
+const QR_FADE_MS: u32 = 100;
 
 /// Appends a button to the flex column `parent` that shows and hides a QR code of `data` below it.
 fn add_qr_code(parent: &LvObj, data: &str) {
@@ -126,7 +128,17 @@ fn add_qr_code(parent: &LvObj, data: &str) {
         return;
     }
 
-    let body = parent.child(0).unwrap();
+    // Fading the card itself would blend its background and then the code on top of it, leaving
+    // the code lighter than its margin on the way. A black cover over the card fades both evenly.
+    let cover = LvObj::with_parent(&card).unwrap();
+    cover.set_size(QR_CARD_SIZE, QR_CARD_SIZE);
+    cover.align(lvgl::LvAlign::LV_ALIGN_CENTER, 0, 0);
+    cover.set_style_bg_color(lvgl::color::black(), 0);
+    cover.set_style_border_width(0, 0);
+    cover.set_style_radius(0, 0);
+
+    let card = Rc::new(card);
+    let body = Rc::new(parent.child(0).unwrap());
     let mut shown = false;
     button
         .add_click_cb(move || {
@@ -135,11 +147,15 @@ fn add_qr_code(parent: &LvObj, data: &str) {
                 card.remove_flag(LvObjFlag::LV_OBJ_FLAG_HIDDEN);
                 // A long body leaves too little room for the code.
                 card.scroll_to_view(false);
+                cover.fade_to(LvOpacityLevel::LV_OPA_TRANSP as u8, QR_FADE_MS, || {});
                 button_label.set_text("Hide QR code").unwrap();
             } else {
-                card.add_flag(LvObjFlag::LV_OBJ_FLAG_HIDDEN);
-                // LVGL does not scroll back by itself when the content shrinks.
-                body.scroll_to_view(false);
+                let (card, body) = (Rc::clone(&card), Rc::clone(&body));
+                cover.fade_to(LvOpacityLevel::LV_OPA_COVER as u8, QR_FADE_MS, move || {
+                    card.add_flag(LvObjFlag::LV_OBJ_FLAG_HIDDEN);
+                    // LVGL does not scroll back by itself when the content shrinks.
+                    body.scroll_to_view(false);
+                });
                 button_label.set_text("Show QR code").unwrap();
             }
         })
@@ -342,6 +358,25 @@ mod tests {
         unsafe { ffi::lv_obj_has_flag(obj.as_ptr(), LvObjFlag::LV_OBJ_FLAG_HIDDEN) }
     }
 
+    fn opa(obj: &LvObj) -> u8 {
+        unsafe { ffi::lv_obj_get_style_opa(obj.as_ptr(), LvPart::LV_PART_MAIN) }
+    }
+
+    /// Runs the click callback before returning, unlike a tap, which takes a while.
+    fn click(obj: &LvObj) {
+        unsafe {
+            ffi::lv_obj_send_event(
+                obj.as_ptr(),
+                lvgl::LvEventCode::LV_EVENT_CLICKED,
+                core::ptr::null_mut(),
+            )
+        };
+    }
+
+    fn pump_fade() {
+        pump_for(QR_FADE_MS as u64 + 100);
+    }
+
     fn tap(touch: &mut ScriptedTouch, obj: &LvObj) {
         let area = coords(obj);
         touch.tap((area.x1 + area.x2) / 2, (area.y1 + area.y2) / 2);
@@ -478,7 +513,54 @@ mod tests {
 
         tap(&mut touch, &button);
         assert_eq!(label_text(button.child(1).unwrap()), "Show QR code");
+        pump_fade();
         assert!(is_hidden(&card));
+    }
+
+    #[test]
+    fn test_build_confirm_screen_qr_code_fade() {
+        let _lock = lock_and_init();
+        let harness = Harness::new(&ConfirmParams {
+            title: "Bitcoin",
+            body: "bc1q w508 d6qe jxtd g4y5 r3za rvar y0c5 xw7k v8f3 t4",
+            body_is_address: true,
+            qr_code: Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            ..Default::default()
+        });
+
+        let container = harness.body_container();
+        let button = container.child(1).unwrap();
+        let card = container.child(2).unwrap();
+        // A black cover over the whole card fades out to reveal the code.
+        let cover = card.child(1).unwrap();
+        let (card_area, cover_area) = (coords(&card), coords(&cover));
+        assert_eq!(
+            (cover_area.x1, cover_area.y1, cover_area.x2, cover_area.y2),
+            (card_area.x1, card_area.y1, card_area.x2, card_area.y2)
+        );
+
+        click(&button);
+        assert!(!is_hidden(&card));
+        assert_eq!(opa(&cover), 255);
+        pump_fade();
+        assert_eq!(opa(&cover), 0);
+
+        // The code stays in place while fading out and is hidden afterwards.
+        click(&button);
+        assert!(!is_hidden(&card));
+        assert_eq!(opa(&cover), 0);
+        pump_fade();
+        assert!(is_hidden(&card));
+        assert_eq!(opa(&cover), 255);
+
+        // Showing the code again while it fades out keeps it.
+        click(&button);
+        pump_fade();
+        click(&button);
+        click(&button);
+        pump_fade();
+        assert!(!is_hidden(&card));
+        assert_eq!(opa(&cover), 0);
     }
 
     #[test]
@@ -511,6 +593,7 @@ mod tests {
 
         // Hiding it scrolls back to the start of the address.
         tap(&mut touch, &button);
+        pump_fade();
         assert_eq!(coords(&address).y1, container_area.y1);
     }
 
