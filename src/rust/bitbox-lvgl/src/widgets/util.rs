@@ -4,6 +4,7 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::ffi::c_void;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 use crate::{LvHandle, class, ffi};
@@ -190,4 +191,53 @@ where
     }
 
     Ok(())
+}
+
+unsafe extern "C" fn fade_exec_cb(obj: *mut c_void, opa: i32) {
+    unsafe { ffi::lv_obj_set_style_opa(obj.cast(), opa as ffi::lv_opa_t, 0) }
+}
+
+unsafe extern "C" fn fade_completed_cb<F: FnOnce()>(anim: *mut ffi::lv_anim_t) {
+    let completed = unsafe { &mut *ffi::lv_anim_get_user_data(anim).cast::<Option<F>>() };
+    if let Some(completed) = completed.take() {
+        completed();
+    }
+}
+
+unsafe extern "C" fn fade_deleted_cb<F>(anim: *mut ffi::lv_anim_t) {
+    drop(unsafe { Box::from_raw(ffi::lv_anim_get_user_data(anim).cast::<Option<F>>()) });
+}
+
+pub(crate) fn fade_to<F>(
+    obj: *mut ffi::lv_obj_t,
+    opa: ffi::lv_opa_t,
+    duration_ms: u32,
+    completed: F,
+) where
+    F: FnOnce() + 'static,
+{
+    let mut anim = MaybeUninit::<ffi::lv_anim_t>::uninit();
+    unsafe {
+        ffi::lv_anim_init(anim.as_mut_ptr());
+        let anim = anim.assume_init_mut();
+        ffi::lv_anim_set_var(anim, obj.cast());
+        ffi::lv_anim_set_exec_cb(anim, Some(fade_exec_cb));
+        ffi::lv_anim_set_values(
+            anim,
+            ffi::lv_obj_get_style_opa(obj, ffi::lv_part_t::LV_PART_MAIN) as i32,
+            opa as i32,
+        );
+        ffi::lv_anim_set_duration(anim, duration_ms);
+        ffi::lv_anim_set_user_data(anim, Box::into_raw(Box::new(Some(completed))).cast());
+        ffi::lv_anim_set_completed_cb(anim, Some(fade_completed_cb::<F>));
+        // Also called after completion, and instead of it if the animation is replaced or the
+        // object is deleted.
+        ffi::lv_anim_set_deleted_cb(anim, Some(fade_deleted_cb::<F>));
+        if ffi::lv_anim_start(anim).is_null() {
+            // Out of memory: skip the animation.
+            ffi::lv_obj_set_style_opa(obj, opa, 0);
+            fade_completed_cb::<F>(anim);
+            fade_deleted_cb::<F>(anim);
+        }
+    }
 }

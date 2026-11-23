@@ -180,6 +180,16 @@ pub trait ObjExt {
         unsafe { ffi::lv_obj_scroll_to_view(self.as_ptr(), anim) }
     }
 
+    /// Animates the opacity of the object and its children from the current value to `opa`,
+    /// replacing a running fade of the object. `completed` runs once `opa` is reached; it is
+    /// dropped without running if the fade is replaced or the object is deleted before that.
+    fn fade_to<F>(&self, opa: LvOpa, duration_ms: u32, completed: F)
+    where
+        F: FnOnce() + 'static,
+    {
+        util::fade_to(self.as_ptr(), opa, duration_ms, completed)
+    }
+
     /// Returns the child at `index`, or `None` if out of range.
     fn child(&self, index: i32) -> Option<LvObj> {
         NonNull::new(unsafe { ffi::lv_obj_get_child(self.as_ptr(), index) }).map(LvHandle::from_ptr)
@@ -492,6 +502,56 @@ mod tests {
         assert_eq!(called.get(), 1);
 
         unsafe { obj.delete() };
+    }
+
+    #[test]
+    fn test_fade_to() {
+        let _lock = crate::test_util::lock_and_init();
+
+        let display = crate::LvDisplay::new(16, 16).unwrap();
+        let screen = display.screen_active().unwrap();
+        let obj = LvObj::with_parent(&screen).unwrap();
+        let opa = |obj: &LvObj| unsafe {
+            ffi::lv_obj_get_style_opa(obj.as_ptr(), ffi::lv_part_t::LV_PART_MAIN)
+        };
+        let advance = |ms: u32| unsafe {
+            ffi::lv_tick_inc(ms);
+            ffi::lv_anim_refr_now();
+        };
+        let completed = Rc::new(Cell::new(0));
+        let count_completed = || {
+            let completed = Rc::clone(&completed);
+            move || completed.set(completed.get() + 1)
+        };
+
+        obj.fade_to(0, 100, count_completed());
+        assert_eq!(opa(&obj), 255);
+        advance(50);
+        assert!((100..=155).contains(&opa(&obj)));
+        assert_eq!(completed.get(), 0);
+        advance(50);
+        assert_eq!(opa(&obj), 0);
+        assert_eq!(completed.get(), 1);
+        assert_eq!(Rc::strong_count(&completed), 1);
+
+        // A replaced fade does not complete, and the next one continues from where it stopped.
+        obj.fade_to(255, 100, count_completed());
+        advance(50);
+        let halfway = opa(&obj);
+        assert!((100..=155).contains(&halfway));
+        obj.fade_to(0, 100, || {});
+        assert_eq!(Rc::strong_count(&completed), 1);
+        assert_eq!(opa(&obj), halfway);
+        advance(100);
+        assert_eq!(opa(&obj), 0);
+        assert_eq!(completed.get(), 1);
+
+        obj.fade_to(255, 100, count_completed());
+        assert_eq!(Rc::strong_count(&completed), 2);
+        unsafe { obj.delete() };
+        assert_eq!(Rc::strong_count(&completed), 1);
+        advance(100);
+        assert_eq!(completed.get(), 1);
     }
 
     #[test]
